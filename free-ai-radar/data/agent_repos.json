@@ -1,0 +1,351 @@
+{
+  "updated": "2026-10-30",
+  "note": "Seed list of canonical repo paths (renames resolved via the GitHub API). Run scripts/agent_radar.py to refresh stars, last-push and licence.",
+  "repos": [
+    {
+      "repo": "anomalyco/opencode",
+      "category": "coding-agent",
+      "note": "Terminal coding agent; OpenCode Zen free model lane"
+    },
+    {
+      "repo": "cline/cline",
+      "category": "coding-agent",
+      "note": "VS Code autonomous agent, BYOK + rotating free models"
+    },
+    {
+      "repo": "RooCodeInc/Roo-Code",
+      "category": "coding-agent",
+      "note": "Cline fork, multi-mode agent"
+    },
+    {
+      "repo": "Kilo-Org/kilocode",
+      "category": "coding-agent",
+      "note": "VS Code/JetBrains agent with free gateway tier"
+    },
+    {
+      "repo": "continuedev/continue",
+      "category": "coding-agent",
+      "note": "IDE assistant + CLI, any provider"
+    },
+    {
+      "repo": "Aider-AI/aider",
+      "category": "coding-agent",
+      "note": "Git-native pair programmer"
+    },
+    {
+      "repo": "aaif-goose/goose",
+      "category": "coding-agent",
+      "note": "Local agent, MCP native"
+    },
+    {
+      "repo": "openai/codex",
+      "category": "coding-agent",
+      "note": "OpenAI Codex CLI"
+    },
+    {
+      "repo": "google-gemini/gemini-cli",
+      "category": "coding-agent",
+      "note": "Free Gemini quota in terminal"
+    },
+    {
+      "repo": "QwenLM/qwen-code",
+      "category": "coding-agent",
+      "note": "Qwen terminal agent (2k free req/day via Qwen OAuth)"
+    },
+    {
+      "repo": "charmbracelet/crush",
+      "category": "coding-agent",
+      "note": "Charm's glamorous agentic CLI"
+    },
+    {
+      "repo": "CodebuffAI/freebuff",
+      "category": "coding-agent",
+      "note": "Codebuff/Freebuff agent with free model promos"
+    },
+    {
+      "repo": "openinterpreter/openinterpreter",
+      "category": "coding-agent",
+      "note": "Natural language local computer interface"
+    },
+    {
+      "repo": "musistudio/claude-code-router",
+      "category": "router",
+      "note": "Route Claude Code to any OpenAI-compatible provider"
+    },
+    {
+      "repo": "ccusage/ccusage",
+      "category": "tooling",
+      "note": "Token/cost usage dashboard for coding CLIs"
+    },
+    {
+      "repo": "anthropics/claude-code",
+      "category": "coding-agent",
+      "note": "Claude Code (repo: issues/docs, not OSS core)"
+    },
+    {
+      "repo": "zed-industries/zed",
+      "category": "editor",
+      "note": "Rust editor with agent panel"
+    },
+    {
+      "repo": "voideditor/void",
+      "category": "editor",
+      "note": "Open-source Cursor alternative"
+    },
+    {
+      "repo": "TabbyML/tabby",
+      "category": "coding-agent",
+      "note": "Self-hosted code completion"
+    },
+    {
+      "repo": "twinnydotdev/twinny",
+      "category": "coding-agent",
+      "note": "Local model code assistant"
+    },
+    {
+      "repo": "AntonOsika/gpt-engineer",
+      "category": "coding-agent",
+      "note": "Spec-to-code generator"
+    },
+    {
+      "repo": "Pythagora-io/gpt-pilot",
+      "category": "coding-agent",
+      "note": "Multi-agent app builder"
+    },
+    {
+      "repo": "OpenHands/OpenHands",
+      "category": "agent-framework",
+      "note": "Autonomous software engineer"
+    },
+    {
+      "repo": "SWE-agent/SWE-agent",
+      "category": "agent-framework",
+      "note": "Research SWE benchmark agent"
+    },
+    {
+      "repo": "Significant-Gravitas/AutoGPT",
+      "category": "agent-framework",
+      "note": "Classic autonomous agent platform"
+    },
+    {
+      "repo": "FoundationAgents/MetaGPT",
+      "category": "agent-framework",
+      "note": "Multi-agent software company"
+    },
+    {
+      "repo": "reworkd/AgentGPT",
+      "category": "agent-framework",
+      "note": "Browser autonomous agents"
+    },
+    {
+      "repo": "yoheinakajima/babyagi",
+      "category": "agent-framework",
+      "note": "Minimal task-loop agent"
+    },
+    {
+      "repo": "agent0ai/agent-zero",
+      "category": "agent-framework",
+      "note": "Self-improving general agent"
+    },
+    {
+      "repo": "microsoft/autogen",
+      "category": "agent-framework",
+      "note": "Multi-agent conversation framework"
+    },
+    {
+      "repo": "crewAIInc/crewAI",
+      "category": "agent-framework",
+      "note": "Role-based agent crews"
+    },
+    {
+      "repo": "agno-agi/agno",
+      "category": "agent-framework",
+      "note": "Agent runtime with memory/tools"
+    },
+    {
+      "repo": "pydantic/pydantic-ai",
+      "category": "agent-framework",
+      "note": "Typed agent framework"
+    },
+    {
+      "repo": "openai/openai-agents-python",
+      "category": "agent-framework",
+      "note": "OpenAI Agents SDK"
+    },
+    {
+      "repo": "google/adk-python",
+      "category": "agent-framework",
+      "note": "Google Agent Development Kit"
+    },
+    {
+      "repo": "langchain-ai/langchain",
+      "category": "agent-framework",
+      "note": "LLM app framework"
+    },
+    {
+      "repo": "langchain-ai/langgraph",
+      "category": "agent-framework",
+      "note": "Stateful agent graphs"
+    },
+    {
+      "repo": "run-llama/llama_index",
+      "category": "agent-framework",
+      "note": "RAG + agents"
+    },
+    {
+      "repo": "stanfordnlp/dspy",
+      "category": "agent-framework",
+      "note": "Programmatic prompt optimisation"
+    },
+    {
+      "repo": "deepset-ai/haystack",
+      "category": "agent-framework",
+      "note": "RAG pipelines"
+    },
+    {
+      "repo": "browser-use/browser-use",
+      "category": "web-agent",
+      "note": "LLM browser automation"
+    },
+    {
+      "repo": "Skyvern-AI/skyvern",
+      "category": "web-agent",
+      "note": "Browser workflow automation"
+    },
+    {
+      "repo": "microsoft/playwright-mcp",
+      "category": "mcp",
+      "note": "Playwright MCP server"
+    },
+    {
+      "repo": "modelcontextprotocol/servers",
+      "category": "mcp",
+      "note": "Reference MCP servers"
+    },
+    {
+      "repo": "upstash/context7",
+      "category": "mcp",
+      "note": "Docs-in-context MCP"
+    },
+    {
+      "repo": "livekit/agents",
+      "category": "voice-agent",
+      "note": "Realtime voice agents"
+    },
+    {
+      "repo": "pipecat-ai/pipecat",
+      "category": "voice-agent",
+      "note": "Voice/multimodal pipelines"
+    },
+    {
+      "repo": "langgenius/dify",
+      "category": "platform",
+      "note": "LLMOps / agent workflows"
+    },
+    {
+      "repo": "n8n-io/n8n",
+      "category": "platform",
+      "note": "Workflow automation with AI nodes"
+    },
+    {
+      "repo": "langflow-ai/langflow",
+      "category": "platform",
+      "note": "Visual agent builder"
+    },
+    {
+      "repo": "FlowiseAI/Flowise",
+      "category": "platform",
+      "note": "Drag-and-drop LLM flows"
+    },
+    {
+      "repo": "infiniflow/ragflow",
+      "category": "platform",
+      "note": "RAG engine"
+    },
+    {
+      "repo": "BerriAI/litellm",
+      "category": "gateway",
+      "note": "100+ provider proxy, OpenAI format"
+    },
+    {
+      "repo": "Portkey-AI/gateway",
+      "category": "gateway",
+      "note": "AI gateway with fallbacks"
+    },
+    {
+      "repo": "songquanpeng/one-api",
+      "category": "gateway",
+      "note": "Key aggregation/relay"
+    },
+    {
+      "repo": "inference-gateway/inference-gateway",
+      "category": "gateway",
+      "note": "K8s-native LLM gateway"
+    },
+    {
+      "repo": "vercel/ai",
+      "category": "sdk",
+      "note": "AI SDK, multi-provider"
+    },
+    {
+      "repo": "ollama/ollama",
+      "category": "local-runtime",
+      "note": "Local model runner"
+    },
+    {
+      "repo": "ggml-org/llama.cpp",
+      "category": "local-runtime",
+      "note": "CPU/GPU inference"
+    },
+    {
+      "repo": "vllm-project/vllm",
+      "category": "local-runtime",
+      "note": "High-throughput serving"
+    },
+    {
+      "repo": "janhq/jan",
+      "category": "local-runtime",
+      "note": "Offline desktop assistant"
+    },
+    {
+      "repo": "lmstudio-ai/lms",
+      "category": "local-runtime",
+      "note": "LM Studio CLI (server + models)"
+    },
+    {
+      "repo": "mudler/LocalAI",
+      "category": "local-runtime",
+      "note": "OpenAI-compatible local server"
+    },
+    {
+      "repo": "NousResearch/hermes-agent",
+      "category": "coding-agent",
+      "note": "Hermes Agent (Nous Research), MIT"
+    },
+    {
+      "repo": "opencode-ai/opencode",
+      "category": "coding-agent",
+      "note": "Original Go opencode (pre-fork)"
+    },
+    {
+      "repo": "microsoft/vscode-copilot-chat",
+      "category": "coding-agent",
+      "note": "Copilot Chat extension source"
+    },
+    {
+      "repo": "JetBrains/junie",
+      "category": "coding-agent",
+      "note": "JetBrains Junie agent"
+    },
+    {
+      "repo": "aws/amazon-q-developer-cli",
+      "category": "coding-agent",
+      "note": "Amazon Q Developer CLI"
+    },
+    {
+      "repo": "github/gh-copilot",
+      "category": "coding-agent",
+      "note": "GitHub Copilot CLI (archived)"
+    }
+  ]
+}
