@@ -50,6 +50,8 @@ const {
   resolveEffectiveHeadless,
   discoverEngineBinaries,
   RotationWorkerPool,
+  createNetworkTracker,
+  waitForBrowserReady,
 } = require('./src/rotation');
 
 /**
@@ -2496,8 +2498,12 @@ class RedditSolver {
       `Executing BotGuard in [${session.brandId} / ${session.engine} / ${session.os}] (${session.architecture}, action="${this.action}")...`
     );
 
+    let networkTracker = null;
     try {
       const { page } = session;
+
+      // Attach BEFORE navigation so the very first request is counted by the readiness gate.
+      networkTracker = createNetworkTracker(page);
 
       page.on('pageerror', (err) => {
         this.logger.debug('Browser:PageError', err.message);
@@ -2527,6 +2533,43 @@ class RedditSolver {
 
       const targetUrl = this.loginPageUrl || 'https://www.reddit.com/login/';
       await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+      // ── READINESS GATE ────────────────────────────────────────────────────
+      // `domcontentloaded` fires long before shreddit is done: it keeps streaming chunks and the
+      // reCAPTCHA anchor fetches on its own schedule, and Reddit can still write `session` /
+      // `csrf_token` after DOMContentLoaded. Reading cookies or calling execute() in that window
+      // pairs a fresh token with a stale csrf on the login POST. Wait for load + network quiet +
+      // a real login form before going further.
+      const readiness = await waitForBrowserReady(page, {
+        tracker: networkTracker,
+        logger: this.logger,
+        label: `recaptcha:${session.brandId}`,
+        isReady: async () => {
+          const state = await page
+            .evaluate(() => ({
+              grecaptcha:
+                typeof grecaptcha !== 'undefined' &&
+                typeof grecaptcha.enterprise !== 'undefined' &&
+                typeof grecaptcha.enterprise.execute === 'function',
+              form: Boolean(document.querySelector('faceplate-text-input, input[name="username"]')),
+              csrfCookie: Boolean((document.cookie || '').includes('csrf_token')),
+            }))
+            .catch(() => ({ grecaptcha: false, form: false, csrfCookie: false }));
+          return {
+            ok: state.form || state.grecaptcha,
+            reason: state.form || state.grecaptcha ? '' : 'login form and grecaptcha both missing',
+            ...state,
+          };
+        },
+      });
+      this.logger.info(
+        'Step2:Browser',
+        `Page ready=${readiness.ready} in ${readiness.waitedMs}ms ` +
+          `(readyState=${readiness.document?.readyState}, ` +
+          `requests=${readiness.network?.finished ?? 0}/${readiness.network?.started ?? 0}, ` +
+          `quiet=${readiness.network?.quiet})` +
+          (readiness.reason ? ` — ${readiness.reason}` : '')
+      );
 
       await page
         .waitForFunction(
@@ -2592,15 +2635,22 @@ class RedditSolver {
         { siteKey: this.siteKey, action: this.action }
       );
 
-      // Sync updated reddit.com cookies back into TlsHttpClient
-      const browserCookies = await session.getCookies('https://www.reddit.com');
-      for (const c of browserCookies) {
-        if (c.name && c.value) {
-          this.client.cookies[c.name] = c.value;
-        }
-      }
-      if (this.client.cookies.csrf_token) {
-        this.csrfToken = this.client.cookies.csrf_token;
+      // Let post-execute requests settle (the token XHR triggers follow-ups), otherwise we copy
+      // a half-updated jar and the login POST ships with a stale csrf/session pair.
+      await networkTracker.waitForQuiet({ quietWindowMs: 400, timeoutMs: 3000 });
+
+      // Sync final reddit.com cookies back into TlsHttpClient and validate the pair Step 4 needs.
+      const harvest = await this._harvestBrowserCookies(session);
+      this.logger.info(
+        'Step2:Browser',
+        `Cookie harvest: ${harvest.copied}/${harvest.total} copied · csrf=${harvest.hasCsrf} · ` +
+          `session=${harvest.hasSession} · loid=${harvest.hasLoid}`
+      );
+      if (!harvest.hasCsrf) {
+        this.logger.warn(
+          'Step2:Browser',
+          'Browser context ended without a csrf_token cookie — Step 4 will try a login-page refresh first.'
+        );
       }
 
       if (result.error || !result.token) {
@@ -2633,6 +2683,7 @@ class RedditSolver {
         durationMs,
       };
     } finally {
+      networkTracker?.dispose();
       await session.close();
     }
   }
@@ -2749,7 +2800,33 @@ class RedditSolver {
 
       const targetUrl = this.loginPageUrl || 'https://www.reddit.com/login/';
       this.logger.info('Step2:Browser', `Navigating to ${targetUrl}...`);
+      const pupTracker = createNetworkTracker(page);
       await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+      // Same readiness gate as the hybrid path: load + network quiet + a real login form.
+      const pupReady = await waitForBrowserReady(page, {
+        tracker: pupTracker,
+        logger: this.logger,
+        label: 'puppeteer:recaptcha',
+        isReady: async () => {
+          const state = await page
+            .evaluate(() => ({
+              grecaptcha:
+                typeof grecaptcha !== 'undefined' &&
+                typeof grecaptcha.enterprise !== 'undefined' &&
+                typeof grecaptcha.enterprise.execute === 'function',
+              form: Boolean(document.querySelector('faceplate-text-input, input[name="username"]')),
+            }))
+            .catch(() => ({ grecaptcha: false, form: false }));
+          return { ok: state.form || state.grecaptcha, ...state };
+        },
+      });
+      this.logger.info(
+        'Step2:Browser',
+        `Puppeteer page ready=${pupReady.ready} in ${pupReady.waitedMs}ms ` +
+          `(readyState=${pupReady.document?.readyState}, quiet=${pupReady.network?.quiet})` +
+          (pupReady.reason ? ` — ${pupReady.reason}` : '')
+      );
 
       await page
         .waitForFunction(
@@ -2820,15 +2897,17 @@ class RedditSolver {
       );
 
       // Sync any updated reddit.com cookies back to TlsHttpClient
-      const browserCookies = await page.cookies('https://www.reddit.com');
-      for (const c of browserCookies) {
-        if (c.name && c.value) {
-          this.client.cookies[c.name] = c.value;
-        }
-      }
-      if (this.client.cookies.csrf_token) {
-        this.csrfToken = this.client.cookies.csrf_token;
-      }
+      // Settle post-execute requests, then copy the final jar through the shared harvester so the
+      // Puppeteer path and the hybrid path can never drift.
+      await pupTracker.waitForQuiet({ quietWindowMs: 400, timeoutMs: 3000 });
+      pupTracker.dispose();
+      const pupHarvest = await this._harvestBrowserCookies({
+        getCookies: async () => page.cookies('https://www.reddit.com', 'https://old.reddit.com'),
+      });
+      this.logger.debug(
+        'Step2:Browser',
+        `Puppeteer cookie harvest: ${pupHarvest.copied}/${pupHarvest.total} copied, csrf=${pupHarvest.hasCsrf}`
+      );
 
       if (result.error || !result.token) {
         if (this.logger.dumpOnError) {
@@ -3064,9 +3143,132 @@ class RedditSolver {
   // ----------------------------------------------------------
   // STEP 4: Reddit Shreddit Login API + Response Verification
   // ----------------------------------------------------------
+  /**
+   * Copy the browser's FINAL Reddit cookies into the TLS client jar.
+   *
+   * Called only after `waitForBrowserReady()` + a network-quiet window, so what we copy is the
+   * settled jar rather than whatever existed at DOMContentLoaded. Keeping this in one place means
+   * Step 2 (browser) and Step 4 (TLS POST) can never drift apart.
+   *
+   * @param {object} session EnginePoolManager browser session
+   * @returns {Promise<{copied:number,total:number,hasCsrf:boolean,hasSession:boolean,hasLoid:boolean,csrf:string}>}
+   */
+  async _harvestBrowserCookies(session) {
+    const urls = ['https://www.reddit.com', 'https://www.reddit.com/login/', 'https://old.reddit.com'];
+    const cookies = await session.getCookies(urls).catch(() => []);
+    let copied = 0;
+    for (const c of cookies) {
+      if (c && c.name && c.value) {
+        this.client.cookies[c.name] = c.value;
+        copied += 1;
+      }
+    }
+    if (this.client.cookies.csrf_token) {
+      this.csrfToken = this.client.cookies.csrf_token;
+    }
+    return {
+      copied,
+      total: cookies.length,
+      hasCsrf: Boolean(this.client.cookies.csrf_token || this.csrfToken),
+      hasSession: Boolean(this.client.cookies.session || this.client.cookies.reddit_session),
+      hasLoid: Boolean(this.client.cookies.loid),
+      csrf: this.client.cookies.csrf_token || this.csrfToken || '',
+    };
+  }
+
+  /**
+   * Re-fetch the login page over the TLS client to (re)seed `csrf_token` / `loid` / `session`.
+   * Used as a last resort when the browser step could not hand over a csrf cookie, so Step 4 does
+   * not fire a request that is guaranteed to be rejected.
+   */
+  async _refreshLoginPageCookies() {
+    const url = this.loginPageUrl || 'https://www.reddit.com/login/';
+    const res = await this.client.get(url, {
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Mode': 'navigate',
+      'Sec-Fetch-Site': 'same-origin',
+      'Sec-Fetch-User': '?1',
+      'Upgrade-Insecure-Requests': '1',
+    });
+    const html = res.text || '';
+    const formToken =
+      html.match(/name="token"\s+value="([^"]+)"/)?.[1] ||
+      html.match(/id="csrf_token"[^>]*value="([^"]+)"/)?.[1] ||
+      null;
+    if (formToken && !this.client.cookies.csrf_token) {
+      this.csrfToken = formToken;
+    }
+    const inline = html.match(/id="solution"\s+value="([^"]+)"/)?.[1];
+    if (inline && !this.loginPageHtml) this.loginPageHtml = html;
+    return {
+      status: res.status,
+      htmlBytes: html.length,
+      formToken: Boolean(formToken),
+      csrf: this.client.cookies.csrf_token || this.csrfToken || '',
+    };
+  }
+
+  /**
+   * Gate between "browser produced a token" and "Step 4 fires the credential POST".
+   *
+   * A login POST without csrf/session cannot succeed and burns an account attempt, so: check, and
+   * if the jar is incomplete, refresh the login page once over TLS and re-check. Never throws —
+   * Step 4 still runs (Reddit sometimes accepts a bare `loid`), but the log says exactly why.
+   *
+   * @param {{refresh?:boolean}} [options]
+   */
+  async ensureLoginSessionReady({ refresh = true } = {}) {
+    const read = () => ({
+      csrf: this.client.cookies.csrf_token || this.csrfToken || '',
+      hasCsrf: Boolean(this.client.cookies.csrf_token || this.csrfToken),
+      hasSession: Boolean(this.client.cookies.session || this.client.cookies.reddit_session),
+      hasLoid: Boolean(this.client.cookies.loid),
+    });
+
+    let state = read();
+    if (state.hasCsrf && (state.hasSession || state.hasLoid)) {
+      this.logger.debug('Step4:Readiness', `session ready (csrf=${this.logger.mask(state.csrf)})`);
+      return { ok: true, refreshed: false, ...state };
+    }
+
+    this.logger.warn(
+      'Step4:Readiness',
+      `Login session incomplete before submit (csrf=${state.hasCsrf}, session=${state.hasSession}, loid=${state.hasLoid}) — refreshing login page once`
+    );
+
+    let refreshed = false;
+    if (refresh) {
+      try {
+        const r = await this._refreshLoginPageCookies();
+        refreshed = true;
+        this.logger.info(
+          'Step4:Readiness',
+          `Login page refresh: HTTP ${r.status}, ${r.htmlBytes}B, formToken=${r.formToken}, csrf=${Boolean(r.csrf)}`
+        );
+      } catch (err) {
+        this.logger.warn('Step4:Readiness', `Login page refresh failed: ${err.message}`);
+      }
+    }
+
+    state = read();
+    const ok = state.hasCsrf && (state.hasSession || state.hasLoid);
+    if (!ok) {
+      this.logger.warn(
+        'Step4:Readiness',
+        `Still incomplete (csrf=${state.hasCsrf}, session=${state.hasSession}, loid=${state.hasLoid}); submitting anyway`
+      );
+    }
+    return { ok, refreshed, ...state };
+  }
+
   async login(username, password, recaptchaToken) {
     this.logger.startStep('step4_reddit_login');
     this.logger.info('Step4:Login', `Submitting credentials for user "${username}"...`);
+
+    // Browser finished loading + handed over its cookies before we got here; verify the pair the
+    // POST actually depends on and refresh once if the handover was incomplete.
+    await this.ensureLoginSessionReady();
 
     // BUG-11 FIXED: Preserve CSRF from both cookie jar AND HTML fallback
     const csrfToken = this.client.cookies.csrf_token || this.csrfToken || '';

@@ -43,12 +43,14 @@ run.bat ──► reddit_checker.js  (bulk orchestrator, CLI + .env + accounts.t
 | `src/rotation/RotationWorkerPool.js` | 439 | worker orchestration, burst pacer, `verifyLiveRotation()` | `RotationWorkerPool` |
 | `src/rotation/ProfileCatalog.js` | 405 | brand/engine/OS catalogue + GPU/screen/locale tables | `BROWSER_BRANDS, getProfilesForMode, …` |
 | `src/rotation/TlsHeaderBridge.js` | 340 | TLS session options + RFC 9113 headers + parity audit | `buildTlsSessionOptions, buildBrowserHeaders, validateProfileParity` |
+| `src/rotation/BrowserReadiness.js` | 250 | **ready gate**: load + network-quiet + app predicate, in-flight tracker | `waitForBrowserReady, createNetworkTracker, waitForDocumentComplete` |
 | `src/rotation/WorkerThreadLeaseBridge.js` | 198 | `worker_threads` lease RPC + crash recovery | `attachLeaseManagerToWorker, WorkerLeaseClient` |
 | `src/rotation/index.js` | 11 | barrel re-export | — |
 | `dashboard.js` | 133 | tiny HTTP+SSE dashboard | `startRun, stopRun` |
 | `scripts/windows_verify_setup.js` | 216 | post-install verification | `main()` |
 | `test/phase1..phase5` | 1,600 | 5 phase suites (catalog/lease/pool/solver/health) | node scripts |
 | `test/phase6_browser_launch.test.js` | 260 | **hermetic** launch-contract suite (fake Playwright: args, context options, minimize, recycle, shutdown) | node script |
+| `test/phase7_browser_readiness.test.js` | 230 | **hermetic** ready-before-login suite (10 checks: gate, cookie harvest, POST ordering) | node script |
 | `scripts/browser_smoke.js` | 330 | `npm run doctor`: discovery + TLS asset + cache + optional real launch probe | `npm run doctor` |
 | `run.bat` / `run_menu.bat` / `install.bat` | — | Windows launchers | — |
 | 8 × `*.md` | — | docs (handover, master plan, audits, trackers) | — |
@@ -114,6 +116,16 @@ CLI flag > env > কোড-ডিফল্ট — এই ক্রমটাই `
 | `phase2_lease_collision` | ✅ 5/5 PASS | pure + worker_threads |
 | `phase3_engine_pool` | ⏭ SKIP (exit 0) | browser binary নেই → `npm run setup:browsers` মেসেজ দিয়ে skip (আগে assertion fail হতো) |
 | `phase6_browser_launch` | ✅ 8/8 PASS | fake Playwright — আসল browser ছাড়াই launch contract যাচাই |
+| `phase7_browser_readiness` | ✅ 10/10 PASS | ready gate + "POST-এর আগে readiness" ক্রম যাচাই |
+
+**লগইন অর্ডার (এখন কোডে বাধ্যতামূলক):**
+
+```
+Step 1  TLS  → GET /login/ → csrf_token, loid, session
+Step 2  browser → goto → [READY GATE: readyState=complete + 0 in-flight 700ms + login form]
+                → grecaptcha.execute() → [quiet 400ms] → harvest cookies → csrf/session/loid check
+Step 4  TLS  → ensureLoginSessionReady() (দরকার হলে login page refresh) → POST /svc/shreddit/account/login
+```
 | `phase4_solver_rotation` | ⏭ SKIP (exit 0) | TLS asset নেই → স্পষ্ট মেসেজসহ skip |
 | `phase5_ban_lock_health` | ⚠️ 3/4 PASS, Suite 4 skip/fail | live Reddit OAuth probe — নেটওয়ার্ক |
 | **`npm test` (পুরো চেইন)** | ❌ **exit 1** | live টেস্টগুলো unit টেস্টের সাথে `&&` দিয়ে জোড়া |
@@ -140,6 +152,7 @@ CLI flag > env > কোড-ডিফল্ট — এই ক্রমটাই `
 | **D12** | `EnginePoolManager` launch args | `--start-minimized` কোনো Chromium সুইচ নয় → `BROWSER_MINIMIZED=true` কখনো কাজ করেনি | 🟠 **ফিক্সড** (CDP `Browser.setWindowBounds`) |
 | **D13** | `initTLS()` | asset না পেলে dependency-র ভেতর `process.exit(1)` → suite/runs নীরবে মরে | 🔴 **mitigated** (`getTlsClientAssetInfo()` preflight + skip + warning) |
 | **D14** | `test/phase3` | browser না থাকলে `Chromium binary must be discovered` — ব্যবহারকারীর কিছুই বোঝার উপায় নেই | 🟡 **ফিক্সড** (actionable skip) |
+| **D15** | `getRecaptchaTokenBrowser()` + `login()` | **প্রথম weak point**: `waitUntil:'domcontentloaded'` এর পরপরই token নিয়ে cookie copy করে **পেজ লোড শেষ হওয়ার আগেই** login POST যেত → token/csrf mismatch, 403, নষ্ট attempt | 🔴 **ফিক্সড** — `BrowserReadiness` gate (load + network-quiet + form), token-এর পরে আরেকবার quiet, cookie harvest validaton, আর Step 4-এর আগে `ensureLoginSessionReady()` (csrf না থাকলে login page একবার refresh) |
 
 ---
 

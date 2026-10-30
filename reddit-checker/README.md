@@ -42,13 +42,26 @@ npm run dashboard             # optional live SSE dashboard on DASH_PORT
 | `npm run doctor:launch` | same, but it really launches every engine and prints the fingerprint it presents |
 | `npm test` | **hermetic** unit suites — passes offline, no browsers needed (includes phase 6, the launch contract) |
 | `npm run test:all` | everything incl. live TLS / browser / Reddit probes (needs network + browsers; those steps SKIP with a reason when impossible) |
-| `npm run test:phase[N]` | a single phase suite (1..5) |
+| `npm run test:phase[N]` | a single phase suite (1..7); 6 = launch contract, 7 = ready-before-login |
 | `npm run verify-rotation` | live N-worker rotation + WAF check |
 | `npm run diagnose` | end-to-end login diagnostics |
 | `npm run debug` / `trace` | structured debug / full trace |
 
 `npm test` is deliberately offline-safe. Anything that needs a real browser binary, a
-downloaded TLS client, or reddit.com lives behind `npm run test:all`.
+downloaded TLS client, or reddit.com lives behind `npm run test:all` — and those steps SKIP with
+a reason instead of failing when the machine cannot do them.
+
+### The login ordering guarantee
+
+```
+Step 1  TLS client → /login/ → csrf_token, loid, session
+Step 2  browser     → wait for load + network quiet + real login form → grecaptcha.execute()
+                    → settle network → harvest final cookies (csrf/session/loid) into the TLS jar
+Step 4  TLS client  → ensureLoginSessionReady() → POST /svc/shreddit/account/login
+```
+
+Step 4 cannot fire while the page is still streaming, and it refreshes the login page once if the
+cookie handover from the browser was incomplete (`src/rotation/BrowserReadiness.js`).
 
 ## Outputs (append-only, written as each account finishes)
 

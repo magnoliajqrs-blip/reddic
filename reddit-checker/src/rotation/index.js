@@ -8,4 +8,5 @@ module.exports = {
   ...require('./WorkerThreadLeaseBridge'),
   ...require('./EnginePoolManager'),
   ...require('./RotationWorkerPool'),
+  ...require('./BrowserReadiness'),
 };
