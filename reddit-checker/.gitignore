@@ -1,0 +1,58 @@
+# Environment files containing secrets
+.env
+.env.local
+.env.*.local
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# Debug artifacts & checker output results
+debug_artifacts/
+.bin_cache/
+results/
+hits.txt
+2fa.txt
+locked.txt
+invalid.txt
+retry_errors.txt
+install_errors.txt
+install_full.log
+*.log
+*.tmp
+*.bak
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test / Build
+coverage/
+build/
+dist/
+
+# ── credentials & account data (NEVER commit these) ──────────────────────────
+accounts.txt
+proxies.txt
+banned.txt
+banned_disabled.txt
+proxies_disabled.txt
+hits_clean.txt
+password_reset.txt
+results/
+.env
+*.env
+!*.env.example
+
+# ── runtime artifacts ────────────────────────────────────────────────────────
+retry_errors.txt
+install_errors.txt
+install_full.log
+debug_artifacts/
