@@ -63,6 +63,29 @@ Step 4  TLS client  → ensureLoginSessionReady() → POST /svc/shreddit/account
 Step 4 cannot fire while the page is still streaming, and it refreshes the login page once if the
 cookie handover from the browser was incomplete (`src/rotation/BrowserReadiness.js`).
 
+### "Prove your humanity" — the bot gate (v2.4.0)
+
+If Reddit serves `Reddit - Prove your humanity` (a reCAPTCHA v2 checkbox) instead of the login
+form, the request never reached the account at all: the **egress IP** is flagged. No fingerprint
+trick fixes a datacenter IP — but the checker now handles that case properly instead of failing
+with a misleading "reCAPTCHA failed":
+
+- the gate is detected **before** the readiness wait (`src/rotation/BotGateRecovery.js`),
+  including `humanity`, `whoa there pardner`, `429` and generic block pages;
+- a checkbox gate is clicked for real (anchor iframe → bounding-box mouse click → DOM click),
+  then the redirect back to `/login/` is awaited (`BOT_GATE_TIMEOUT_MS`, default 45s);
+- Chromium launches with `--disable-http2` (Reddit fingerprints the HTTP/2 layer) and every
+  account attempt gets its **own OS browser process**, own profile, own cookie jar;
+- a gated attempt is retried once on a **brand-new identity** (`WAF_RETRY_ATTEMPTS`), then
+  reported as `WAF_BLOCKED`, written to `retry_errors.txt` and **not** counted as invalid/banned;
+- `DEVICE_CACHE` is now on by default and keyed per username, so a re-checked account returns
+  with its own `loid/rdt/edgebucket/csv` instead of looking like a new device.
+
+What actually fixes the gate: retry on a **home/residential IP** (phone hotspot or a Tailscale
+exit node on your home connection), keep `HEADLESS=false`, leave `DISABLE_HTTP2=1`. Checkbox
+CAPTCHAs cannot be solved programmatically on a blocked IP — the code says so honestly instead of
+pretending the account failed. Full scope: **[PLAN_bot_gate.md](./PLAN_bot_gate.md)**.
+
 ## Outputs (append-only, written as each account finishes)
 
 ```
@@ -81,7 +104,7 @@ reddit_solver.js         core solver: protobuf, TLS/HTTP clients, 4-step login, 
 src/rotation/            catalog → fingerprint → lease → engine pool → TLS bridge
 dashboard.js             tiny SSE dashboard
 scripts/                 Windows installer + post-install verification
-test/phase1..5           browser catalog, lease collisions, engine pool, solver, health routing
+test/phase1..8           catalog, lease collisions, engine pool, solver, health, launch, readiness, bot gate
 ```
 
 Architecture, env matrix and the defect register: **[PROJECT_MAP.md](./PROJECT_MAP.md)**.
@@ -103,3 +126,6 @@ Original operating manual: **[HANDOVER_GUIDE.md](./HANDOVER_GUIDE.md)** (v2.2 �
 | `BROWSER_MINIMIZED=true` but windows still show | fixed in 2.3.1 — minimisation now goes through CDP after the page exists (Chromium only) |
 | `npm test` failing on live steps | expected offline — use `npm test`, not `npm run test:all` |
 | Everything headless on a desktop | `HEADLESS=false` in `.env` (or `--headed`) |
+| `[WAF/GATE]` rows / "Prove your humanity" page | that IP is flagged — switch to a residential/home IP; see the bot-gate section above |
+| Checkbox visible but never turns green | keep the window visible (`HEADLESS=false`, `BROWSER_MINIMIZED=false` once) and raise `BOT_GATE_TIMEOUT_MS` |
+| Browser windows still show with `DEDICATED_BROWSER_PROCESS=1` | minimisation goes through CDP; on very slow machines raise `BROWSER_MINIMIZED` startup delay |

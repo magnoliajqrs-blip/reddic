@@ -167,66 +167,102 @@ class RotationWorkerPool {
     return this.runConcurrentTasks(
       accounts,
       async (acct, { workerId, index, lease, enginePool, markBurned }) => {
-        const t0 = Date.now();
-        await this._pacePerIpIfShared(lease.proxy);
-        const solver = new SolverClass({
-          proxy: lease.proxy,
-          mode: this.solverMode,
-          rotationMode: this.rotationMode,
-          lease,
-          enginePool,
-          ownsLease: false,
-          logger: this.logger,
-          deviceCookies: acct.deviceCookies || null,
-        });
+        // ── IDENTITY-SCOPED RETRY LADDER ─────────────────────────────────────
+        // A "Prove your humanity" verdict is an IP/identity problem, not an account
+        // problem: retry it ONCE (configurable) on a brand-new lease so the attempt gets a
+        // new profile, new TLS/HTTP2 class and a new cookie jar. Nothing is ever shared.
+        const maxAttempts = 1 + Math.max(0, Number(process.env.WAF_RETRY_ATTEMPTS ?? 1) || 0);
+        let activeLease = lease;
+        let finalSummary = null;
 
         try {
-          const loginRes = await solver.fullLogin(acct.username, acct.password, { quiet });
-          if (loginRes.status === 429 || loginRes.verdict === 'RATE_LIMITED' || loginRes.verdict === 'WAF_BLOCKED') {
-            markBurned(loginRes.verdict || `http_${loginRes.status}`);
+          for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+            const t0 = Date.now();
+            await this._pacePerIpIfShared(activeLease.proxy);
+
+            const solver = new SolverClass({
+              proxy: activeLease.proxy,
+              mode: this.solverMode,
+              rotationMode: this.rotationMode,
+              lease: activeLease,
+              enginePool,
+              ownsLease: false,
+              logger: this.logger,
+              deviceCookies: acct.deviceCookies || null,
+            });
+
+            const base = {
+              index,
+              workerId,
+              username: acct.username,
+              attempt,
+              brandId: activeLease.profile.brandId,
+              engine: activeLease.profile.engine,
+              os: activeLease.profile.os,
+              tlsClientId: activeLease.tlsSessionOptions.clientIdentifier,
+              signatureId: activeLease.profile.signatureId,
+              leaseId: activeLease.leaseId,
+            };
+
+            let gated = false;
+            try {
+              const loginRes = await solver.fullLogin(acct.username, acct.password, { quiet });
+              gated = loginRes.verdict === 'WAF_BLOCKED' || Boolean(loginRes.wafKind);
+              if (loginRes.status === 429 || loginRes.verdict === 'RATE_LIMITED' || gated) {
+                markBurned(loginRes.verdict || `http_${loginRes.status}`);
+              }
+              finalSummary = { ...base, durationMs: Date.now() - t0, ...loginRes };
+            } catch (err) {
+              gated = err.code === 'WAF_BLOCKED' || /prove your humanity/i.test(err.message);
+              if (gated || /humanity|429|rate/i.test(err.message)) {
+                markBurned(gated ? 'waf_blocked' : 'exception_waf');
+              }
+              finalSummary = {
+                ...base,
+                durationMs: Date.now() - t0,
+                success: false,
+                verdict: gated ? 'WAF_BLOCKED' : 'EXCEPTION',
+                wafKind: err.wafKind || null,
+                widget: err.widget || null,
+                needsResidentialProxy: err.needsResidentialProxy === true,
+                error: err.message,
+              };
+            } finally {
+              await solver.close();
+            }
+
+            if (!gated || attempt >= maxAttempts) break;
+
+            this.logger?.warn?.(
+              'WorkerPool',
+              `[${acct.username}] bot gate on attempt ${attempt} (identity ${activeLease.profile.signatureId.slice(0, 8)}) — burning it and retrying on a fresh identity`
+            );
+            if (activeLease !== lease) {
+              await this.leaseManager
+                .markBurned(activeLease.leaseId, { reason: 'waf_blocked' })
+                .catch(() => {});
+              activeLease = lease; // avoid double-cleanup in `finally` below
+            }
+            try {
+              activeLease = await this.leaseManager.acquireLease({
+                workerId: `${workerId}-retry${attempt}`,
+              });
+            } catch (leaseErr) {
+              this.logger?.warn?.('WorkerPool', `Retry lease unavailable: ${leaseErr.message}`);
+              break;
+            }
+            // Small human-ish pause before the fresh identity hits the same origin again.
+            await new Promise((r) => setTimeout(r, 1500 + Math.floor(Math.random() * 2500)));
           }
 
-          const summary = {
-            index,
-            workerId,
-            username: acct.username,
-            brandId: lease.profile.brandId,
-            engine: lease.profile.engine,
-            os: lease.profile.os,
-            tlsClientId: lease.tlsSessionOptions.clientIdentifier,
-            signatureId: lease.profile.signatureId,
-            durationMs: Date.now() - t0,
-            ...loginRes,
-          };
-
-          if (typeof onResult === 'function') {
-            onResult(summary, index);
+          if (finalSummary && typeof onResult === 'function') {
+            onResult(finalSummary, index);
           }
-          return summary;
-        } catch (err) {
-          if (/humanity|429|rate/i.test(err.message)) {
-            markBurned('exception_waf');
-          }
-          const failSummary = {
-            index,
-            workerId,
-            username: acct.username,
-            brandId: lease.profile.brandId,
-            engine: lease.profile.engine,
-            os: lease.profile.os,
-            tlsClientId: lease.tlsSessionOptions.clientIdentifier,
-            signatureId: lease.profile.signatureId,
-            durationMs: Date.now() - t0,
-            success: false,
-            verdict: 'EXCEPTION',
-            error: err.message,
-          };
-          if (typeof onResult === 'function') {
-            onResult(failSummary, index);
-          }
-          return failSummary;
+          return finalSummary;
         } finally {
-          await solver.close();
+          if (activeLease !== lease) {
+            await this.leaseManager.releaseLease(activeLease.leaseId).catch(() => {});
+          }
         }
       }
     );

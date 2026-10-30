@@ -468,6 +468,10 @@ class EnginePoolManager {
             '--window-size=1120,760',
           ]
         : [];
+      // Reddit's edge fingerprints the HTTP/2 connection layer itself (SETTINGS frame order +
+      // pseudo-header order), which Chromium's H2 stack never matches a real Chrome build.
+      // Forcing HTTP/1.1 removes that signal entirely — documented fix for Reddit's gate.
+      const disableHttp2 = process.env.DISABLE_HTTP2 !== '0' ? ['--disable-http2'] : [];
       opts.args = [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -476,6 +480,7 @@ class EnginePoolManager {
         '--disable-features=IsolateOrigins,site-per-process',
         '--no-first-run',
         '--no-default-browser-check',
+        ...disableHttp2,
         ...visibleWindowArgs,
         ...extraArgs,
       ];
@@ -540,10 +545,11 @@ class EnginePoolManager {
    * or allocate an isolated context inside a shared engine process (Method 1 + Method 2 pooled).
    */
   _shouldUseDedicatedProcess(profile, forceDedicatedProcess = false) {
-    // W11: global env switch — `DEDICATED_BROWSER_PROCESS=1` forces a fully isolated OS browser
-    // process per worker (max anti-detect isolation at higher RAM cost) instead of sharing one
-    // Chromium process across 6 brands.
-    if (forceDedicatedProcess || process.env.DEDICATED_BROWSER_PROCESS === '1') return true;
+    // Strict one-identity-per-browser: every account attempt gets its own OS browser process
+    // (own GPU process, own cookie jar, own profile dir), so two accounts can never share a
+    // canvas/WebGL/process-level fingerprint. `DEDICATED_BROWSER_PROCESS=0` reverts to the
+    // old shared-process pooling on low-RAM machines at the cost of that isolation.
+    if (forceDedicatedProcess || process.env.DEDICATED_BROWSER_PROCESS !== '0') return true;
 
     // If `adryfish/fingerprint-chromium` C++ binary is installed, launch dedicated process
     // so per-lease `--fingerprint=<seed>` and `--fingerprint-brand=<Brand>` C++ flags apply!

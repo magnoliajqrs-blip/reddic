@@ -1,6 +1,6 @@
 {
   "name": "reddit-checker-solver",
-  "version": "2.3.2",
+  "version": "2.4.0",
   "description": "Reddit Shreddit login + hybrid multi-browser rotation solver with a bulk clean-hit / ban / shadowban / password-reset checker",
   "main": "reddit_checker.js",
   "scripts": {
@@ -10,9 +10,9 @@
     "dashboard": "node dashboard.js",
     "doctor": "node scripts/browser_smoke.js",
     "doctor:launch": "node scripts/browser_smoke.js --launch",
-    "test": "node reddit_solver.js --test && node reddit_checker.js --self-test && node test/phase2_lease_collision.test.js && node test/phase6_browser_launch.test.js && node test/phase7_browser_readiness.test.js",
-    "test:all": "node reddit_solver.js --test && node reddit_checker.js --self-test && node test/phase1_catalog.test.js && node test/phase2_lease_collision.test.js && node test/phase3_engine_pool.test.js && node test/phase4_solver_rotation.test.js && node test/phase5_ban_lock_health.test.js && node test/phase6_browser_launch.test.js && node test/phase7_browser_readiness.test.js",
-    "test:phases": "node test/phase1_catalog.test.js && node test/phase2_lease_collision.test.js && node test/phase3_engine_pool.test.js && node test/phase4_solver_rotation.test.js && node test/phase5_ban_lock_health.test.js && node test/phase6_browser_launch.test.js && node test/phase7_browser_readiness.test.js",
+    "test": "node reddit_solver.js --test && node reddit_checker.js --self-test && node test/phase2_lease_collision.test.js && node test/phase6_browser_launch.test.js && node test/phase7_browser_readiness.test.js && node test/phase8_bot_gate.test.js",
+    "test:all": "node reddit_solver.js --test && node reddit_checker.js --self-test && node test/phase1_catalog.test.js && node test/phase2_lease_collision.test.js && node test/phase3_engine_pool.test.js && node test/phase4_solver_rotation.test.js && node test/phase5_ban_lock_health.test.js && node test/phase6_browser_launch.test.js && node test/phase7_browser_readiness.test.js && node test/phase8_bot_gate.test.js",
+    "test:phases": "node test/phase1_catalog.test.js && node test/phase2_lease_collision.test.js && node test/phase3_engine_pool.test.js && node test/phase4_solver_rotation.test.js && node test/phase5_ban_lock_health.test.js && node test/phase6_browser_launch.test.js && node test/phase7_browser_readiness.test.js && node test/phase8_bot_gate.test.js",
     "test:phase1": "node test/phase1_catalog.test.js",
     "test:phase2": "node test/phase2_lease_collision.test.js",
     "test:phase3": "node test/phase3_engine_pool.test.js",
@@ -20,6 +20,7 @@
     "test:phase5": "node test/phase5_ban_lock_health.test.js",
     "test:phase6": "node test/phase6_browser_launch.test.js",
     "test:phase7": "node test/phase7_browser_readiness.test.js",
+    "test:phase8": "node test/phase8_bot_gate.test.js",
     "verify-rotation": "node reddit_solver.js --verify-rotation 6",
     "diagnose": "node reddit_solver.js --diagnose --debug",
     "debug": "node reddit_solver.js --debug",

@@ -109,6 +109,11 @@ require.cache[entry] = {
   paths: [],
 };
 
+// The pooled-mode checks below (shared process, maxContextsPerEngine recycling, context-level
+// proxy) describe the OLD sharing behaviour on purpose. v2.4.0 defaults to one OS process per
+// identity; the dedicated default is asserted separately at the end of this suite.
+process.env.DEDICATED_BROWSER_PROCESS = '0';
+
 // Headed launches are refused on a Linux box without $DISPLAY (by design). These checks are
 // about launch *construction*, so pretend we have a desktop; no window is ever really opened.
 if (!process.env.DISPLAY && process.platform === 'linux') process.env.DISPLAY = ':99';
@@ -248,6 +253,39 @@ async function main() {
     assert.strictEqual(resolveEffectiveHeadless(false, { FORCE_HEADED: '1' }), false);
     assert.strictEqual(resolveEffectiveHeadless(undefined, { HEADLESS: 'false', DISPLAY: ':0' }), false);
     assert.strictEqual(resolveEffectiveHeadless(undefined, { HEADLESS: '1' }), true);
+  });
+
+  await check('default: one OS process per identity + --disable-http2 (strict uniqueness)', async () => {
+    const prevDedicated = process.env.DEDICATED_BROWSER_PROCESS;
+    const prevHttp2 = process.env.DISABLE_HTTP2;
+    delete process.env.DEDICATED_BROWSER_PROCESS;
+    delete process.env.DISABLE_HTTP2;
+    launches.length = 0;
+    try {
+      const pool = new EnginePoolManager({ mode: 'single-engine', headless: true });
+      const a = await pool.acquireBrowserSession({ workerId: 'p6-unique-a' });
+      const b = await pool.acquireBrowserSession({ workerId: 'p6-unique-b' });
+      assert.strictEqual(launches.length, 2, 'each account attempt must get its own browser process');
+      assert.ok(
+        launches.every((l) => l.opts.args.includes('--disable-http2')),
+        'chromium must launch with --disable-http2 (Reddit fingerprints HTTP/2)'
+      );
+      assert.notStrictEqual(
+        a.lease.profile.signatureId,
+        b.lease.profile.signatureId,
+        'two identities must never share a signature'
+      );
+      assert.strictEqual(a.architecture, 'dedicated-antidetect-process');
+      await a.close();
+      await b.close();
+      await pool.shutdown();
+    } finally {
+      if (prevDedicated === undefined) delete process.env.DEDICATED_BROWSER_PROCESS;
+      else process.env.DEDICATED_BROWSER_PROCESS = prevDedicated;
+      if (prevHttp2 === undefined) delete process.env.DISABLE_HTTP2;
+      else process.env.DISABLE_HTTP2 = prevHttp2;
+      process.env.DEDICATED_BROWSER_PROCESS = '0';
+    }
   });
 
   const failed = checks.filter((c) => !c.ok);

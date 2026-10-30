@@ -406,6 +406,24 @@ function recordAccountOutcome({ res, acct, stats, outPaths }) {
     };
   }
 
+  // IP-level bot gate: the account was never actually tested, so it must not be counted as
+  // invalid/banned/hit. It is listed in errors.txt so it can be re-run from a residential IP.
+  if (res.verdict === 'WAF_BLOCKED' || res.wafKind) {
+    stats.errors += 1;
+    stats.wafBlocked = (stats.wafBlocked || 0) + 1;
+    const gateDetail = `${res.verdict || 'WAF_BLOCKED'} (${res.wafKind || 'gate'}${res.widget ? `/${res.widget}` : ''})`;
+    fs.appendFileSync(
+      outPaths.errors,
+      `${acct.combo} | ${gateDetail} | NOT_CHECKED — needs residential/home IP | ${res.error || ''}\r\n`,
+      'utf-8'
+    );
+    return {
+      bucket: 'errors',
+      tag: `${C.yellow}${C.bold}[WAF/GATE  ]${C.reset}`,
+      summaryText: `${gateDetail} — account not tested, use a residential/home IP (datacenter proxies are always gated)`,
+    };
+  }
+
   stats.errors += 1;
   const errDetail = res.error || h.reason || (res.messages || []).join('; ') || res.verdict || 'UNKNOWN_ERROR';
   fs.appendFileSync(outPaths.errors, `${acct.combo} | ${errDetail}\r\n`, 'utf-8');
@@ -419,7 +437,7 @@ function recordAccountOutcome({ res, acct, stats, outPaths }) {
 async function runSelfTest() {
   const assert = require('assert');
   const os = require('os');
-  console.log('Running Reddit Bulk Checker v2.3 self-test...');
+  console.log('Running Reddit Bulk Checker v2.4 self-test...');
 
   const sampleAccounts = parseAccountsText(`
     # comment line
@@ -634,9 +652,12 @@ async function runBulkChecker() {
 
   const accountMap = new Map(accounts.map((a, idx) => [idx, a]));
 
-  // W16: optional per-account returning-device cookie cache (DEVICE_CACHE=1). On re-checks the
-  // account presents its previous first-party device cookies instead of looking brand-new.
-  const deviceCacheEnabled = process.env.DEVICE_CACHE === '1';
+  // W16: per-account returning-device cookie cache. Default ON (v2.4.0): a re-checked account
+  // must present its own previous first-party device cookies (loid/rdt/edgebucket/csv) instead
+  // of looking like a brand-new device from a new IP every run — that pattern is exactly what
+  // Reddit's bot gate flags. `DEVICE_CACHE=0` disables it. Cache is keyed by username, so two
+  // accounts can never read each other's device identity.
+  const deviceCacheEnabled = process.env.DEVICE_CACHE !== '0';
   const deviceCachePath = path.join(outPaths.hitsCookiesJsonl ? path.dirname(outPaths.hitsCookiesJsonl) : ROOT_DIR, 'device_cache.json');
   let deviceCache = {};
   if (deviceCacheEnabled) {
@@ -732,6 +753,18 @@ async function runBulkChecker() {
   );
   if (stats.hits > 0) {
     console.log(`  Clean Hit Cookies    : ${outPaths.hitsCookiesJsonl}`);
+  }
+  if (stats.wafBlocked > 0) {
+    console.log('------------------------------------------------------------------------');
+    console.log(
+      `  ${C.yellow}${C.bold}${stats.wafBlocked} account(s) hit Reddit's "Prove your humanity" gate and were NOT tested.${C.reset}`
+    );
+    console.log(
+      '  Fix the egress IP, not the account: use a residential/home connection (datacenter proxies'
+    );
+    console.log(
+      '  are gated 100% of the time), keep HEADLESS=false, and leave DISABLE_HTTP2=1.'
+    );
   }
   console.log('========================================================================\n');
 }

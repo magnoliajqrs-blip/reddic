@@ -54,6 +54,15 @@ const {
   waitForBrowserReady,
 } = require('./src/rotation');
 
+// Reddit edge bot-gate detection + "I'm not a robot" checkbox recovery.
+const {
+  detectBotGate: detectRedditBotGate,
+  detectBotGateInPage,
+  resolveBotGate,
+  wafError: buildWafError,
+  isWafError,
+} = require('./src/rotation/BotGateRecovery');
+
 /**
  * Ensure Windows `%TEMP%\tls-client-64.dll` is healthy before `initTLS()` loads it via Koffi:
  *   1. Deletes any partial/0-byte `< 10MB` file in `%TEMP%` that would break `koffi.load()`.
@@ -1607,10 +1616,11 @@ function parseRedditJsChallenge(html) {
   };
 }
 
-// Detect Reddit WAF "Prove your humanity" hard block page
+// Detect Reddit WAF "Prove your humanity" hard block page (one member of the gate family;
+// `detectRedditBotGate` classifies humanity / whoa-there / 429 / generic blocks).
 function isHumanityBlockPage(html) {
   if (!html || typeof html !== 'string') return false;
-  return /<title>\s*Reddit\s*-\s*Prove your humanity\s*<\/title>/i.test(html);
+  return detectRedditBotGate(html).kind === 'humanity';
 }
 
 // Extract live Shreddit metadata (<shreddit-app release=...>, login-step partial URL, site-key, captcha-action)
@@ -2267,13 +2277,29 @@ class RedditSolver {
           await new Promise((r) => setTimeout(r, 5500));
           continue;
         }
+        const gate = detectRedditBotGate(html, loginRes.status);
+        this.wafGate = gate;
+        this.wafBlockedAtStep1 = true;
         this.logger.error(
           'Step1:JSChallenge',
-          'Reddit WAF served "Prove your humanity" hard challenge! Check HTTP/2 headers, TLS fingerprint, or rotate IP/proxy.'
+          `Reddit bot gate served: ${gate.kind}${gate.widget ? ` (${gate.widget} widget)` : ''} — ${gate.hint}`
         );
         if (this.logger.dumpOnError) {
           this.logger.saveArtifact('step1_waf_humanity_block.html', html);
         }
+        if (this.mode === 'http') {
+          // There is no browser to click the checkbox with, and a login POST from this IP is
+          // guaranteed to be rejected: fail honestly instead of burning the account.
+          throw buildWafError({
+            kind: gate.kind,
+            widget: gate.widget,
+            detail: 'HTTP-only mode cannot clear a checkbox gate',
+          });
+        }
+        this.logger.warn(
+          'Step1:JSChallenge',
+          'Continuing to the browser step — it will try to clear the checkbox on this identity.'
+        );
       } else if (parsedChallenge.isChallenge) {
         this.challengeUrl = parsedChallenge.solutionUrl;
         this.logger.info(
@@ -2450,6 +2476,15 @@ class RedditSolver {
     try {
       return await this._getRecaptchaTokenViaHybridPool();
     } catch (poolErr) {
+      if (isWafError(poolErr)) {
+        // Another browser on the same egress IP hits the same gate; burning 60s + a window
+        // for a guaranteed block only makes the burst bucket worse.
+        this.logger.error(
+          'Step2:BrowserPool',
+          `Bot gate not cleared (${poolErr.wafKind || 'unknown'}); skipping Puppeteer fallback (same egress IP).`
+        );
+        throw poolErr;
+      }
       this.logger.warn(
         'Step2:BrowserPool',
         `Hybrid EnginePool solver warning (${poolErr.message}); attempting Puppeteer Stealth fallback...`
@@ -2533,6 +2568,53 @@ class RedditSolver {
 
       const targetUrl = this.loginPageUrl || 'https://www.reddit.com/login/';
       await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      let pageOpenedAt = Date.now();
+
+      // ── BOT-GATE CHECK (runs BEFORE the readiness gate) ────────────────────
+      // A flagged egress IP is served "Prove your humanity" instead of the login form.
+      // The readiness gate would only time out and report a misleading reCAPTCHA failure,
+      // so classify the page first and try to clear the checkbox the human way.
+      const initialGate = await detectBotGateInPage(page);
+      if (initialGate.blocked) {
+        const recovery = await resolveBotGate(page, {
+          logger: this.logger,
+          timeoutMs: Number(process.env.BOT_GATE_TIMEOUT_MS || 45000),
+          allowCheckbox: process.env.BOT_GATE_CHECKBOX !== '0',
+        });
+        if (!recovery.cleared) {
+          this.wafGate = { kind: recovery.kind, widget: recovery.widget };
+          if (this.logger.dumpOnError) {
+            const shot = await page.screenshot({ fullPage: false }).catch(() => null);
+            if (shot) this.logger.saveArtifact('step2_bot_gate.png', shot);
+            const gateHtml = await page.content().catch(() => '');
+            if (gateHtml) this.logger.saveArtifact('step2_bot_gate.html', gateHtml);
+          }
+          this.logger.endStep('step2_recaptcha_browser', 'waf_blocked', {
+            kind: recovery.kind,
+            widget: recovery.widget,
+            reason: recovery.reason,
+          });
+          throw buildWafError({
+            kind: recovery.kind,
+            widget: recovery.widget,
+            detail: recovery.reason || 'checkbox gate was not cleared',
+          });
+        }
+        this.logger.info(
+          'Step2:BotGate',
+          `Gate cleared (${recovery.kind}/${recovery.widget || 'n/a'}); reloading the login form on the cleared identity`
+        );
+        const hasLoginForm = await page
+          .evaluate(() => Boolean(document.querySelector('faceplate-text-input, input[name="username"]')))
+          .catch(() => false);
+        if (!hasLoginForm) {
+          await page
+            .goto('https://www.reddit.com/login/', { waitUntil: 'domcontentloaded', timeout: 30000 })
+            .catch(() => null);
+        }
+        pageOpenedAt = Date.now();
+        if (typeof page.url === 'function') this.loginPageUrl = page.url() || this.loginPageUrl;
+      }
 
       // ── READINESS GATE ────────────────────────────────────────────────────
       // `domcontentloaded` fires long before shreddit is done: it keeps streaming chunks and the
@@ -2614,6 +2696,24 @@ class RedditSolver {
       }
 
       await page.mouse.move(200 + crypto.randomInt(0, 280), 160 + crypto.randomInt(0, 220), { steps: 6 });
+
+      // ── HUMAN DWELL ───────────────────────────────────────────────────────
+      // reCAPTCHA scores how long the page has been open; calling execute() ~1s after
+      // load is the strongest automation signal there is. Stay a few seconds.
+      const dwellMs = Number(process.env.PAGE_DWELL_MS ?? 8000);
+      const dwellLeft = dwellMs - (Date.now() - pageOpenedAt);
+      if (Number.isFinite(dwellMs) && dwellLeft > 0) {
+        this.logger.debug(
+          'Step2:Browser',
+          `Dwelling ${Math.round(dwellLeft)}ms on the page before execute() (PAGE_DWELL_MS=${dwellMs})`
+        );
+        await new Promise((r) => setTimeout(r, dwellLeft));
+        await page.mouse.move(
+          240 + crypto.randomInt(0, 300),
+          200 + crypto.randomInt(0, 240),
+          { steps: 5 }
+        );
+      }
 
       const result = await page.evaluate(
         ({ siteKey, action }) =>
@@ -2720,6 +2820,7 @@ class RedditSolver {
       '--disable-background-networking',
       '--disable-sync',
       '--disable-translate',
+      ...(process.env.DISABLE_HTTP2 !== '0' ? ['--disable-http2'] : []),
     ];
 
     let proxyCredentials = null;
@@ -2802,6 +2903,30 @@ class RedditSolver {
       this.logger.info('Step2:Browser', `Navigating to ${targetUrl}...`);
       const pupTracker = createNetworkTracker(page);
       await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+      // Same bot-gate handling as the hybrid path (this fallback is only reached when no
+      // gate was seen, but the gate can appear mid-flight on a shared IP).
+      const pupGate = await detectBotGateInPage(page);
+      if (pupGate.blocked) {
+        const recovery = await resolveBotGate(page, {
+          logger: this.logger,
+          timeoutMs: Number(process.env.BOT_GATE_TIMEOUT_MS || 45000),
+          allowCheckbox: process.env.BOT_GATE_CHECKBOX !== '0',
+        });
+        if (!recovery.cleared) {
+          this.wafGate = { kind: recovery.kind, widget: recovery.widget };
+          this.logger.endStep('step2_recaptcha_browser_puppeteer', 'waf_blocked', {
+            kind: recovery.kind,
+            widget: recovery.widget,
+          });
+          throw buildWafError({
+            kind: recovery.kind,
+            widget: recovery.widget,
+            detail: recovery.reason || 'checkbox gate was not cleared',
+          });
+        }
+        this.logger.info('Step2:BotGate', 'Puppeteer path cleared the gate; continuing.');
+      }
 
       // Same readiness gate as the hybrid path: load + network quiet + a real login form.
       const pupReady = await waitForBrowserReady(page, {
@@ -3130,6 +3255,13 @@ class RedditSolver {
     try {
       return await this.getRecaptchaTokenBrowser();
     } catch (browserErr) {
+      if (isWafError(browserErr)) {
+        this.logger.error(
+          'Step2:AutoFallback',
+          'Bot gate is IP-level; the HTTP solver would be blocked too — returning WAF_BLOCKED.'
+        );
+        throw browserErr;
+      }
       this.logger.warn(
         'Step2:AutoFallback',
         `Browser solver unavailable (${browserErr.message}); falling back to HTTP Anchor+Protobuf solver`

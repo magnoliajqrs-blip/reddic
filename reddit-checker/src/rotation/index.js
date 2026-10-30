@@ -9,4 +9,5 @@ module.exports = {
   ...require('./EnginePoolManager'),
   ...require('./RotationWorkerPool'),
   ...require('./BrowserReadiness'),
+  ...require('./BotGateRecovery'),
 };
