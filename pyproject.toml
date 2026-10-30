@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "reddic"
+version = "0.1.0"
+description = "Detection audit lab + engine-agnostic browser automation core"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+dependencies = []
+
+[project.optional-dependencies]
+# Install exactly one engine family (or several, for A/B comparison).
+nodriver = ["nodriver>=0.34"]
+patchright = ["patchright>=1.40"]
+playwright = ["playwright>=1.45"]
+camoufox = ["camoufox[geoip]>=0.4"]
+all = [
+    "nodriver>=0.34",
+    "patchright>=1.40",
+    "playwright>=1.45",
+    "camoufox[geoip]>=0.4",
+]
+dev = ["pytest>=8"]
+
+[project.scripts]
+reddic = "reddic.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["reddic*"]
+
+[tool.setuptools.package-data]
+reddic = ["audit/*.js", "lab/static/*"]

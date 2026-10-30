@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>reddic lab</title>
+<style>
+:root{--bg:#0b0d12;--panel:#131721;--line:#222a38;--text:#e6ebf5;--muted:#8b97ad;
+--crit:#ff4d5e;--high:#ff9f43;--med:#ffd93d;--low:#4da3ff;--ok:#2ed573}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(1100px 520px at 50% -10%,#182034 0%,var(--bg) 58%);
+color:var(--text);font:15px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+padding:34px 20px 70px}
+.wrap{max-width:940px;margin:0 auto}
+h1{font-size:21px;margin:0 0 6px;font-weight:600}
+p.sub{color:var(--muted);font-size:13px;margin:0 0 26px}
+.card{background:linear-gradient(180deg,#161b27,#12161f);border:1px solid var(--line);
+border-radius:14px;padding:20px;margin-bottom:16px}
+button{background:#2b5cff;border:0;color:#fff;font:600 14px/1 inherit;padding:13px 22px;
+border-radius:10px;cursor:pointer;letter-spacing:.3px}
+button:hover{background:#3f6cff}
+button:disabled{background:#26303f;color:#7d8899;cursor:wait}
+button.ghost{background:#1a2130;color:#c3ccdd;border:1px solid var(--line)}
+.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.score{font-size:54px;font-weight:700;line-height:1}
+.grade{color:var(--muted);font-size:12px;letter-spacing:2px;margin-top:6px}
+.verdict{display:inline-block;padding:5px 12px;border-radius:999px;font-size:11px;
+font-weight:700;letter-spacing:1.3px;text-transform:uppercase}
+.bar{display:grid;grid-template-columns:112px 1fr 40px;gap:12px;align-items:center;
+font-size:13px;margin-bottom:10px}
+.track{height:8px;background:#0e131c;border-radius:99px;overflow:hidden;border:1px solid var(--line)}
+.fill{height:100%;border-radius:99px;width:0;transition:width .5s ease}
+.f{border:1px solid var(--line);border-left:3px solid var(--low);background:#10141d;
+border-radius:9px;padding:12px 14px;margin-bottom:9px}
+.f.critical{border-left-color:var(--crit)}.f.high{border-left-color:var(--high)}
+.f.medium{border-left-color:var(--med)}.f.low{border-left-color:var(--low)}
+.chip{font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;
+padding:3px 7px;border-radius:5px;background:#1c2230;color:var(--muted)}
+.chip.critical{background:rgba(255,77,94,.15);color:var(--crit)}
+.chip.high{background:rgba(255,159,67,.15);color:var(--high)}
+.chip.medium{background:rgba(255,217,61,.13);color:var(--med)}
+.chip.low{background:rgba(77,163,255,.13);color:var(--low)}
+.t{font-weight:600;font-size:13.5px;margin:6px 0 3px}
+.d{color:#b9c3d4;font-size:12.5px}
+.x{margin-top:7px;color:#9fe8bd;font-size:12px}
+pre{background:#0a0e15;border:1px solid var(--line);border-radius:8px;padding:12px;
+overflow:auto;font-size:11.5px;max-height:320px;color:#9fb0c9}
+.muted{color:var(--muted);font-size:12.5px}
+a{color:var(--low)}
+.hide{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>reddic <span style="color:#4da3ff">lab</span></h1>
+  <p class="sub">Runs ~50 detection rules against the browser that is loading this page.
+     Run it once in a browser you trust as a human baseline, then run it inside your
+     automation engine and compare the two numbers.</p>
+
+  <div class="card">
+    <div class="row">
+      <button id="go">Collect signals</button>
+      <button id="reset" class="ghost">Clear</button>
+      <span class="muted" id="status">idle</span>
+    </div>
+    <div class="muted" id="auto" style="margin-top:10px"></div>
+  </div>
+
+  <div class="card hide" id="result">
+    <div class="row" style="justify-content:space-between;align-items:flex-start">
+      <div>
+        <div class="score" id="score">--</div>
+        <div class="grade" id="grade">/100</div>
+      </div>
+      <div style="text-align:right">
+        <div class="verdict" id="verdict">--</div>
+        <div class="muted" id="meta" style="margin-top:10px"></div>
+      </div>
+    </div>
+    <div style="margin-top:22px" id="bars"></div>
+    <div style="margin-top:16px" class="row">
+      <a id="full" href="#" target="_blank">open full report</a>
+      <a id="json" href="#" target="_blank">raw json</a>
+    </div>
+  </div>
+
+  <div id="findings"></div>
+
+  <div class="card">
+    <div class="muted">Point your engine at this URL with <code>?auto=1</code> and the page
+    will probe itself and POST the result back automatically. That number is directly
+    comparable to the one above because the same rule set scores both.</div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const fmt = (n) => (n == null ? "?" : n);
+let busy = false;
+
+function colour(score){
+  return score >= 90 ? "#2ed573" : score >= 75 ? "#ffd93d" : score >= 55 ? "#ff9f43" : "#ff4d5e";
+}
+
+async function collectSignals(){
+  const src = await (await fetch("/probe.js", {cache:"no-store"})).text();
+  const probe = (0, eval)("(" + src + ")");
+  const signals = await probe();
+
+  // Network layer: ask a TLS echo service from inside this browser so the
+  // measured JA4 belongs to the browser, not to the server.
+  try {
+    const r = await fetch("https://tls.peet.ws/api/all", {cache:"no-store"});
+    if (r.ok){
+      const j = await r.json();
+      signals.network = {
+        ok: true,
+        endpoint: "https://tls.peet.ws/api/all",
+        ja3: j?.tls?.ja3 ?? null,
+        ja3_hash: j?.tls?.ja3_hash ?? null,
+        ja4: j?.tls?.ja4 ?? null,
+        http_version: j?.http_version ?? null,
+        akamai_fingerprint: j?.http2?.akamai_fingerprint ?? null,
+        akamai_fingerprint_hash: j?.http2?.akamai_fingerprint_hash ?? null,
+        user_agent_seen: j?.user_agent ?? null,
+        country: j?.geoip?.country ?? null,
+        raw: {ip: j?.ip, geoip: j?.geoip, sent_settings: j?.http2?.sent_frames?.[0]?.settings}
+      };
+    } else {
+      signals.network = {ok:false, error:"echo status " + r.status};
+    }
+  } catch (e) {
+    signals.network = {ok:false, error:String(e).slice(0,160)};
+  }
+  return signals;
+}
+
+function render(res, signals){
+  $("result").classList.remove("hide");
+  $("score").textContent = res.score;
+  $("score").style.color = colour(res.score);
+  $("grade").textContent = res.grade + " / 100";
+  const v = $("verdict");
+  v.textContent = res.verdict;
+  const map = {
+    CLEAN:["rgba(46,213,115,.15)","#2ed573"], USABLE:["rgba(77,163,255,.15)","#4da3ff"],
+    FRAGILE:["rgba(255,159,67,.15)","#ff9f43"], DETECTABLE:["rgba(255,77,94,.15)","#ff4d5e"]
+  };
+  const c = map[res.verdict] || ["#1c2230","#8b97ad"];
+  v.style.background = c[0]; v.style.color = c[1];
+  $("full").href = res.html; $("json").href = res.json;
+
+  const n = signals.navigator || {};
+  $("meta").innerHTML =
+    "engine: " + (signals.meta?.userAgentDataSupported ? "chromium" : "?") +
+    "<br>" + n.userAgent?.slice(0, 62) +
+    "<br>tz " + (signals.intl?.timeZone || "?") + " · " +
+    (signals.intl?.locale || "?") + " · " + (signals.screen?.width || "?") + "x" +
+    (signals.screen?.height || "?") +
+    "<br>gpu " + (signals.webgl?.unmaskedRenderer || signals.webgl?.renderer || "?").slice(0,46) +
+    "<br>ja4 " + (signals.network?.ja4 || "n/a");
+
+  if (!window.__lastCats){
+    $("bars").innerHTML = "";
+  }
+}
+
+async function run(){
+  if (busy) return;
+  busy = true;
+  $("go").disabled = true;
+  $("status").textContent = "collecting…";
+  const t0 = performance.now();
+  try {
+    const signals = await collectSignals();
+    $("status").textContent = "scoring…";
+    const r = await fetch("/submit", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({signals})
+    });
+    const res = await r.json();
+    if (res.error) throw new Error(res.error);
+    render(res, signals);
+    $("status").textContent = "done in " + Math.round(performance.now() - t0) + "ms";
+    await showFindings(res.html);
+  } catch (e){
+    $("status").textContent = "failed: " + e.message;
+  } finally {
+    busy = false;
+    $("go").disabled = false;
+  }
+}
+
+async function showFindings(htmlUrl){
+  // Fetch the machine report so the page can list findings without a reload.
+  try {
+    const r = await fetch(htmlUrl.replace(/\/report\/(.+)$/, "/report/$1.json"));
+    const doc = await r.json();
+    const rep = doc.report;
+    const cats = rep.category_scores || {};
+    $("bars").innerHTML = Object.keys(cats).map(k =>
+      `<div class="bar"><div class="muted">${k}</div>
+       <div class="track"><div class="fill" style="width:${cats[k]}%;background:${colour(cats[k])}"></div></div>
+       <div><b>${cats[k]}</b></div></div>`).join("");
+
+    const host = $("findings");
+    if (!rep.findings.length){
+      host.innerHTML = '<div class="card muted">No findings. Verify against a hostile target before trusting this.</div>';
+      return;
+    }
+    host.innerHTML = rep.findings.map(f => `
+      <div class="f ${f.severity}">
+        <span class="chip ${f.severity}">${f.severity}</span>
+        <span class="chip">${f.category}</span>
+        <div class="t">${escapeHtml(f.title)}</div>
+        <div class="d">${escapeHtml(f.detail)}</div>
+        ${f.fix ? `<div class="x"><b>fix</b> ${escapeHtml(f.fix)}</div>` : ""}
+      </div>`).join("");
+  } catch (e){
+    console.warn("findings fetch failed", e);
+  }
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+$("go").addEventListener("click", run);
+$("reset").addEventListener("click", () => {
+  $("result").classList.add("hide");
+  $("findings").innerHTML = "";
+  $("status").textContent = "idle";
+});
+
+if (new URLSearchParams(location.search).get("auto") === "1"){
+  $("auto").textContent = "auto-run requested by query string";
+  run();
+}
+</script>
+</body>
+</html>

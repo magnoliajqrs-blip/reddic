@@ -1,0 +1,252 @@
+{
+  "meta": {
+    "probeVersion": "1.0.0",
+    "timestamp": "2026-10-30T04:00:00.000Z",
+    "url": "https://example.com/",
+    "userAgentDataSupported": true,
+    "seededRandom": 4096
+  },
+  "navigator": {
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+    "appVersion": "5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+    "appName": "Netscape",
+    "appCodeName": "Mozilla",
+    "product": "Gecko",
+    "productSub": "20030107",
+    "vendor": "Google Inc.",
+    "vendorSub": "",
+    "platform": "Win32",
+    "language": "bn-BD",
+    "languages": ["bn-BD", "bn", "en-US", "en"],
+    "hardwareConcurrency": 8,
+    "deviceMemory": 8,
+    "maxTouchPoints": 0,
+    "webdriver": false,
+    "webdriverInNavigator": true,
+    "cookieEnabled": true,
+    "doNotTrack": null,
+    "pdfViewerEnabled": true,
+    "onLine": true,
+    "plugins": [
+      "PDF Viewer",
+      "Chrome PDF Viewer",
+      "Chromium PDF Viewer",
+      "Microsoft Edge PDF Viewer",
+      "WebKit built-in PDF"
+    ],
+    "mimeTypes": 2
+  },
+  "uaData": {
+    "brands": [
+      { "brand": "Chromium", "version": "148" },
+      { "brand": "Google Chrome", "version": "148" },
+      { "brand": "Not)A;Brand", "version": "8" }
+    ],
+    "mobile": false,
+    "platform": "Windows",
+    "high": {
+      "architecture": "x86",
+      "bitness": "64",
+      "formFactors": ["Desktop"],
+      "fullVersionList": [
+        { "brand": "Chromium", "version": "148.0.7778.168" },
+        { "brand": "Google Chrome", "version": "148.0.7778.168" },
+        { "brand": "Not)A;Brand", "version": "8.0.0.0" }
+      ],
+      "model": "",
+      "platform": "Windows",
+      "platformVersion": "15.0.0",
+      "uaFullVersion": "148.0.7778.168",
+      "wow64": false
+    }
+  },
+  "screen": {
+    "width": 1920,
+    "height": 1080,
+    "availWidth": 1920,
+    "availHeight": 1040,
+    "availLeft": 0,
+    "availTop": 0,
+    "colorDepth": 24,
+    "pixelDepth": 24,
+    "orientation": "landscape-primary",
+    "isExtended": false
+  },
+  "window": {
+    "innerWidth": 1366,
+    "innerHeight": 800,
+    "outerWidth": 1366,
+    "outerHeight": 900,
+    "screenX": 277,
+    "screenY": 90,
+    "devicePixelRatio": 1,
+    "hasFocus": true,
+    "visualViewportScale": 1,
+    "chromeKeysOnWindow": ["loadTimes", "csi", "app"]
+  },
+  "intl": {
+    "timeZone": "Asia/Dhaka",
+    "locale": "bn-BD",
+    "calendar": "gregory",
+    "numberingSystem": "beng",
+    "hourCycle": "h23",
+    "timeZoneOffset": -360,
+    "utcOffsetMinutes": 360,
+    "dateSample": "১/১/২০২০",
+    "numberSample": "১২,৩৪,৫৬৭.৮৯১",
+    "collatorLocale": "bn",
+    "supportedLocales": "en-US,en-GB,bn-BD,de-DE"
+  },
+  "canvas": {
+    "ok": true,
+    "hash": "8b1e44af",
+    "hashB": "c07d3190",
+    "length": 38902,
+    "stableSameDraw": true,
+    "differsOnDifferentDraw": true,
+    "dataUrlHead": "data:image/png;base64,iVBORw0KGgo"
+  },
+  "offscreen": { "supported": true, "hash": "31fa90cd", "convertToBlob": "async" },
+  "webgl": {
+    "supported": true,
+    "contextVersion": 2,
+    "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+    "shadingLanguageVersion": "WebGL GLSL ES 3.00 (OpenGL ES GLSL ES 3.0 Chromium)",
+    "vendor": "WebKit",
+    "renderer": "WebKit WebGL",
+    "debugInfoAvailable": true,
+    "unmaskedVendor": "Google Inc. (NVIDIA)",
+    "unmaskedRenderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0, D3D11)",
+    "maxTextureSize": 16384,
+    "extensionCount": 34,
+    "extensions": ["EXT_texture_filter_anisotropic", "WEBGL_debug_renderer_info"],
+    "vertexHighFloat": { "precision": 23, "rangeMin": 127, "rangeMax": 127 }
+  },
+  "audio": { "ok": true, "hash": "124.043476", "sampleRate": 44100 },
+  "fonts": {
+    "supported": true,
+    "detected": [
+      "Arial", "Segoe UI", "Calibri", "Cambria", "Consolas", "Tahoma",
+      "Times New Roman", "Verdana", "Georgia", "Courier New", "Impact", "Trebuchet MS"
+    ],
+    "count": 12,
+    "tested": 50,
+    "genericWidths": { "monospace": 601.3, "sans-serif": 588.1, "serif": 572.4 }
+  },
+  "media": {
+    "supported": true,
+    "total": 3,
+    "counts": { "audioinput": 1, "audiooutput": 1, "videoinput": 1 },
+    "labeled": 0
+  },
+  "webrtc": {
+    "supported": true,
+    "candidates": ["candidate:1 1 udp 2122260223 192.168.1.42 54321 typ host"],
+    "ended": true
+  },
+  "permissions": {
+    "supported": true,
+    "states": { "geolocation": "prompt", "notifications": "prompt", "camera": "prompt" },
+    "notificationPermission": "prompt"
+  },
+  "chrome": {
+    "present": true,
+    "typeofChrome": "object",
+    "keys": ["loadTimes", "csi", "app"],
+    "hasRuntime": true,
+    "runtimeId": null,
+    "hasApp": true,
+    "hasCsi": true,
+    "hasLoadTimes": true
+  },
+  "automation": {
+    "webdriver": false,
+    "webdriverExposed": true,
+    "windowArtifacts": [],
+    "nativeCheck": {
+      "navigator.permissions.query": "native",
+      "navigator.webdriver.getter": "native",
+      "HTMLCanvasElement.toDataURL": "native",
+      "WebGLRenderingContext.getParameter": "native",
+      "navigator.languages.getter": "native",
+      "Element.getBoundingClientRect": "native"
+    },
+    "cdpConsole": { "leaked": false },
+    "stack": "Error: reddic-probe\n    at <anonymous>:1:9\n    at async reddic.evaluate",
+    "iframe": {
+      "ok": true,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+      "platform": "Win32",
+      "webdriver": false,
+      "plugins": 5,
+      "languages": ["bn-BD", "bn", "en-US", "en"],
+      "hardwareConcurrency": 8,
+      "hasChrome": true,
+      "outerWidth": 1366,
+      "outerHeight": 900,
+      "deviceMemory": 8
+    },
+    "worker": {
+      "ok": true,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+      "platform": "Win32",
+      "webdriver": false,
+      "hardwareConcurrency": 8,
+      "deviceMemory": 8,
+      "languages": ["bn-BD", "bn", "en-US", "en"],
+      "origin": "https://example.com"
+    },
+    "hasErrorPrepareStackTrace": "function"
+  },
+  "storage": {
+    "supported": true,
+    "quota": 299908498,
+    "usage": 4210,
+    "localStorage": true,
+    "sessionStorage": true,
+    "indexedDB": true,
+    "cookieLength": 138,
+    "localStorageWritable": true
+  },
+  "connection": {
+    "supported": true,
+    "effectiveType": "4g",
+    "rtt": 50,
+    "downlink": 10,
+    "saveData": false
+  },
+  "speech": {
+    "supported": true,
+    "count": 5,
+    "voices": [
+      "Microsoft David - English (United States)|en-US",
+      "Microsoft Zira - English (United States)|en-US"
+    ]
+  },
+  "battery": { "supported": true, "charging": true, "level": 0.86, "chargingTime": 1200 },
+  "timing": {
+    "timeOrigin": 1761800400000,
+    "coarseResolution": false,
+    "resolutionSteps": 1,
+    "hasPerformanceMemory": true,
+    "jsHeapSizeLimit": 4294705152
+  },
+  "network": {
+    "endpoint": "https://tls.peet.ws/api/all",
+    "ok": true,
+    "error": null,
+    "ja3": "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-17513-21,29-23-24,0",
+    "ja3_hash": "cd08e31494f9531f560d64c695473da9",
+    "ja4": "t13d1516h2_8daaf6152771_b186095e22b6",
+    "http_version": "h2",
+    "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p",
+    "akamai_fingerprint_hash": "52d84b11737d980aef856699f885ca86",
+    "user_agent_seen": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+    "country": "BD",
+    "raw": {
+      "sent_settings": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p",
+      "geoip": { "country": "BD", "city": "Dinajpur" }
+    }
+  },
+  "errors": []
+}

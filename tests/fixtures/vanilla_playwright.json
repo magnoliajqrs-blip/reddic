@@ -1,0 +1,190 @@
+{
+  "meta": {
+    "probeVersion": "1.0.0",
+    "timestamp": "2026-10-30T04:00:00.000Z",
+    "url": "https://example.com/",
+    "userAgentDataSupported": false,
+    "seededRandom": 1731
+  },
+  "navigator": {
+    "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/131.0.0.0 Safari/537.36",
+    "appVersion": "5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/131.0.0.0 Safari/537.36",
+    "appName": "Netscape",
+    "appCodeName": "Mozilla",
+    "product": "Gecko",
+    "productSub": "20030107",
+    "vendor": "Google Inc.",
+    "vendorSub": "",
+    "platform": "Linux x86_64",
+    "language": "en-US",
+    "languages": [],
+    "hardwareConcurrency": 1,
+    "deviceMemory": null,
+    "maxTouchPoints": 0,
+    "webdriver": true,
+    "webdriverInNavigator": true,
+    "cookieEnabled": true,
+    "doNotTrack": null,
+    "pdfViewerEnabled": false,
+    "onLine": true,
+    "plugins": [],
+    "mimeTypes": 0
+  },
+  "uaData": null,
+  "screen": {
+    "width": 1280,
+    "height": 720,
+    "availWidth": 1280,
+    "availHeight": 720,
+    "availLeft": 0,
+    "availTop": 0,
+    "colorDepth": 24,
+    "pixelDepth": 24,
+    "orientation": "landscape-primary",
+    "isExtended": false
+  },
+  "window": {
+    "innerWidth": 1280,
+    "innerHeight": 720,
+    "outerWidth": 1280,
+    "outerHeight": 720,
+    "screenX": 0,
+    "screenY": 0,
+    "devicePixelRatio": 1,
+    "hasFocus": true,
+    "visualViewportScale": 1,
+    "chromeKeysOnWindow": []
+  },
+  "intl": {
+    "timeZone": "UTC",
+    "locale": "en-US",
+    "calendar": "gregory",
+    "numberingSystem": "latn",
+    "hourCycle": "h23",
+    "timeZoneOffset": 0,
+    "utcOffsetMinutes": 0,
+    "dateSample": "1/1/2020",
+    "numberSample": "1,234,567.891",
+    "collatorLocale": "en-US",
+    "supportedLocales": "en-US,en-GB,de-DE"
+  },
+  "canvas": {
+    "ok": true,
+    "hash": "3f9a1c2d",
+    "hashB": "7781aabb",
+    "length": 41234,
+    "stableSameDraw": false,
+    "differsOnDifferentDraw": true,
+    "dataUrlHead": "data:image/png;base64,iVBORw0KGgo"
+  },
+  "offscreen": { "supported": true, "hash": "aa11bb22", "convertToBlob": "async" },
+  "webgl": {
+    "supported": true,
+    "contextVersion": 1,
+    "version": "WebGL 1.0 (OpenGL ES 2.0 Chromium)",
+    "shadingLanguageVersion": "WebGL GLSL ES 1.0 (OpenGL ES GLSL ES 1.0 Chromium)",
+    "vendor": "WebKit",
+    "renderer": "WebKit WebGL",
+    "debugInfoAvailable": true,
+    "unmaskedVendor": "Google Inc. (Google)",
+    "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
+    "maxTextureSize": 8192,
+    "extensionCount": 2,
+    "extensions": ["WEBGL_debug_renderer_info", "OES_texture_float"],
+    "vertexHighFloat": { "precision": 23, "rangeMin": 127, "rangeMax": 127 }
+  },
+  "audio": { "ok": true, "hash": "0.000000", "sampleRate": 44100 },
+  "fonts": {
+    "supported": true,
+    "detected": ["DejaVu Sans", "Liberation Sans", "Noto Sans"],
+    "count": 3,
+    "tested": 50,
+    "genericWidths": { "monospace": 601.3, "sans-serif": 588.1, "serif": 572.4 }
+  },
+  "media": {
+    "supported": true,
+    "total": 0,
+    "counts": {},
+    "labeled": 0
+  },
+  "webrtc": { "supported": false, "candidates": [] },
+  "permissions": {
+    "supported": true,
+    "states": { "geolocation": "prompt", "notifications": "prompt" },
+    "notificationPermission": "denied"
+  },
+  "chrome": {
+    "present": false,
+    "typeofChrome": "undefined",
+    "keys": [],
+    "hasRuntime": false,
+    "runtimeId": null,
+    "hasApp": false,
+    "hasCsi": false,
+    "hasLoadTimes": false
+  },
+  "automation": {
+    "webdriver": true,
+    "webdriverExposed": true,
+    "windowArtifacts": ["cdc_adoQpoasnfa76pfcZLmcfl_Array", "cdc_adoQpoasnfa76pfcZLmcfl_Promise"],
+    "nativeCheck": {
+      "navigator.permissions.query": "native",
+      "navigator.webdriver.getter": "patched:function () { [redacted] }",
+      "HTMLCanvasElement.toDataURL": "patched:() => { return real.call(this) }",
+      "WebGLRenderingContext.getParameter": "native"
+    },
+    "cdpConsole": { "leaked": true },
+    "stack": "Error: reddic-probe\n    at <anonymous>:1:9\n    at Object.<anonymous> (playwright:evaluate:1:1)",
+    "iframe": {
+      "ok": true,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/131.0.0.0 Safari/537.36",
+      "platform": "Linux x86_64",
+      "webdriver": true,
+      "plugins": 0,
+      "languages": ["en-US"],
+      "hardwareConcurrency": 1,
+      "hasChrome": false,
+      "outerWidth": 1280,
+      "outerHeight": 720,
+      "deviceMemory": null
+    },
+    "worker": {
+      "ok": true,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "platform": "Linux x86_64",
+      "webdriver": false,
+      "hardwareConcurrency": 1,
+      "deviceMemory": null,
+      "languages": ["en-US"],
+      "origin": "https://example.com"
+    },
+    "hasErrorPrepareStackTrace": "function"
+  },
+  "storage": {
+    "supported": true,
+    "quota": 299908498,
+    "usage": 0,
+    "localStorage": true,
+    "sessionStorage": true,
+    "indexedDB": true,
+    "cookieLength": 0,
+    "localStorageWritable": true
+  },
+  "connection": {
+    "supported": true,
+    "effectiveType": "4g",
+    "rtt": 50,
+    "downlink": 10,
+    "saveData": false
+  },
+  "speech": { "supported": true, "count": 0, "voices": [] },
+  "battery": { "supported": false },
+  "timing": {
+    "timeOrigin": 1761800400000,
+    "coarseResolution": false,
+    "resolutionSteps": 1,
+    "hasPerformanceMemory": true,
+    "jsHeapSizeLimit": 4294705152
+  },
+  "errors": []
+}
