@@ -25,7 +25,34 @@ const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
 const { spawn } = require('child_process');
+// ── dependency guard ────────────────────────────────────────────────────────
+// A freshly extracted ZIP has no node_modules. Without this, Node prints a raw MODULE_NOT_FOUND
+// stack (or the window closes instantly when launched from a .bat). Say what to do instead.
+for (const dep of ['node-tls-client', 'rebrowser-playwright-core']) {
+  try {
+    require.resolve(dep);
+  } catch {
+    const banner = [
+      '',
+      '======================================================================',
+      '  [!] Dependencies are not installed yet',
+      '======================================================================',
+      `  Missing: ${dep}`,
+      '',
+      '  Windows : double-click install.bat  (or run: npm install)',
+      '  Any OS  : npm install',
+      '',
+      '  Then re-run. install.bat also downloads the three browser engines.',
+      '======================================================================',
+      '',
+    ].join('\n');
+    console.error(banner);
+    process.exit(1);
+  }
+}
+
 const { initTLS, destroyTLS } = require('node-tls-client');
+
 
 const {
   RedditSolver,

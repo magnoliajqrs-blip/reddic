@@ -38,6 +38,28 @@ const crypto = require('crypto');
 const zlib = require('zlib');
 const { Buffer } = require('buffer');
 const { URL, URLSearchParams } = require('url');
+for (const dep of ['node-tls-client', 'rebrowser-playwright-core']) {
+  try {
+    require.resolve(dep);
+  } catch {
+    console.error(
+      [
+        '',
+        '======================================================================',
+        '  [!] Dependencies are not installed yet',
+        '======================================================================',
+        `  Missing: ${dep}`,
+        '',
+        '  Windows : double-click install.bat  (or run: npm install)',
+        '  Any OS  : npm install',
+        '======================================================================',
+        '',
+      ].join('\n')
+    );
+    process.exit(1);
+  }
+}
+
 const { Session, initTLS, destroyTLS } = require('node-tls-client');
 const {
   BROWSER_CATALOG,
