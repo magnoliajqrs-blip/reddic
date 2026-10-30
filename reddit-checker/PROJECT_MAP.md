@@ -47,7 +47,9 @@ run.bat ──► reddit_checker.js  (bulk orchestrator, CLI + .env + accounts.t
 | `src/rotation/index.js` | 11 | barrel re-export | — |
 | `dashboard.js` | 133 | tiny HTTP+SSE dashboard | `startRun, stopRun` |
 | `scripts/windows_verify_setup.js` | 216 | post-install verification | `main()` |
-| `test/phase1..phase5` | 1,536 | 5 phase suites (catalog/lease/pool/solver/health) | node scripts |
+| `test/phase1..phase5` | 1,600 | 5 phase suites (catalog/lease/pool/solver/health) | node scripts |
+| `test/phase6_browser_launch.test.js` | 260 | **hermetic** launch-contract suite (fake Playwright: args, context options, minimize, recycle, shutdown) | node script |
+| `scripts/browser_smoke.js` | 330 | `npm run doctor`: discovery + TLS asset + cache + optional real launch probe | `npm run doctor` |
 | `run.bat` / `run_menu.bat` / `install.bat` | — | Windows launchers | — |
 | 8 × `*.md` | — | docs (handover, master plan, audits, trackers) | — |
 
@@ -108,10 +110,11 @@ CLI flag > env > কোড-ডিফল্ট — এই ক্রমটাই `
 |---|---|---|
 | `reddit_solver.js --test` | ✅ 9/9 PASS | pure unit |
 | `reddit_checker.js --self-test` | ✅ PASS | pure unit |
-| `phase1_catalog` | ⚠️ 4/5 — Test 5 FAIL | live TLS handshake; `node-tls-client` নিজে binary নামাতে পারে না (`tls-client-x64.so` missing / TLS inspect) |
+| `phase1_catalog` | ✅ 4/5 + Test 5 SKIP | live TLS handshake বাদে সব পাস; asset ছাড়া `initTLS()` প্রসেস kill করত — এখন preflight |
 | `phase2_lease_collision` | ✅ 5/5 PASS | pure + worker_threads |
-| `phase3_engine_pool` | ❌ FAIL (Suite 1) | `Chromium binary must be discovered` — `rebrowser-playwright-core install` চালানো হয়নি |
-| `phase4_solver_rotation` | ⚠️ live step abort | phase1-এর মতোই TLS asset |
+| `phase3_engine_pool` | ⏭ SKIP (exit 0) | browser binary নেই → `npm run setup:browsers` মেসেজ দিয়ে skip (আগে assertion fail হতো) |
+| `phase6_browser_launch` | ✅ 8/8 PASS | fake Playwright — আসল browser ছাড়াই launch contract যাচাই |
+| `phase4_solver_rotation` | ⏭ SKIP (exit 0) | TLS asset নেই → স্পষ্ট মেসেজসহ skip |
 | `phase5_ban_lock_health` | ⚠️ 3/4 PASS, Suite 4 skip/fail | live Reddit OAuth probe — নেটওয়ার্ক |
 | **`npm test` (পুরো চেইন)** | ❌ **exit 1** | live টেস্টগুলো unit টেস্টের সাথে `&&` দিয়ে জোড়া |
 
@@ -134,6 +137,9 @@ CLI flag > env > কোড-ডিফল্ট — এই ক্রমটাই `
 | D9 | repo | `retry_errors.txt` (runtime output) version-controlled | 🟡 |
 | D10 | `src/rotation/ProfileLeaseManager.js:21` | `listBrandsForMode` import করা কিন্তু অব্যবহৃত (dead import) | 🟢 |
 | D11 | 19 × empty `catch {}` | error গিলে ফেলা — `DEBUG=1` ছাড়া কারণ জানা যায় না | 🟢 |
+| **D12** | `EnginePoolManager` launch args | `--start-minimized` কোনো Chromium সুইচ নয় → `BROWSER_MINIMIZED=true` কখনো কাজ করেনি | 🟠 **ফিক্সড** (CDP `Browser.setWindowBounds`) |
+| **D13** | `initTLS()` | asset না পেলে dependency-র ভেতর `process.exit(1)` → suite/runs নীরবে মরে | 🔴 **mitigated** (`getTlsClientAssetInfo()` preflight + skip + warning) |
+| **D14** | `test/phase3` | browser না থাকলে `Chromium binary must be discovered` — ব্যবহারকারীর কিছুই বোঝার উপায় নেই | 🟡 **ফিক্সড** (actionable skip) |
 
 ---
 

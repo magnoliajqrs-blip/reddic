@@ -16,6 +16,7 @@ const {
   ensureWindowsTlsDllReady,
   classifyLoginResponse,
   classifyAccountHealthData,
+  getTlsClientAssetInfo,
 } = require('../reddit_solver');
 const { createOutPaths, recordAccountOutcome } = require('../reddit_checker');
 
@@ -309,35 +310,41 @@ async function runPhase5Tests() {
   // SUITE 4: Live Reddit Production Verification (Active vs Suspended vs Shadowban 404)
   // -------------------------------------------------------------------------
   console.log('[Suite 4/4] Live Reddit OAuth Public Profile Probe (Active vs Suspended vs 404)...');
-  ensureWindowsTlsDllReady();
-  await initTLS();
-  const solver = new RedditSolver({ mode: 'http', headless: true });
-  try {
-    await solver.solveJsChallenge();
-    assert(solver.anonymousTokenV2.length > 20, 'Step 1 must seed solver.anonymousTokenV2');
+  const tlsAsset = getTlsClientAssetInfo();
+  if (!tlsAsset.ok) {
+    console.log(`  SKIP: node-tls-client native library not present (${tlsAsset.tempPath}) — the live
+  probe needs it; run \`node reddit_solver.js --diagnose\` once with network to fetch it.`);
+  } else {
+    ensureWindowsTlsDllReady();
+    await initTLS();
+    const solver = new RedditSolver({ mode: 'http', headless: true });
+    try {
+      await solver.solveJsChallenge();
+      assert(solver.anonymousTokenV2.length > 20, 'Step 1 must seed solver.anonymousTokenV2');
 
-    const [activePub, suspendedPub, shadowPub] = await Promise.all([
-      solver.queryAnonymousPublicProfile('spez'),
-      solver.queryAnonymousPublicProfile('deepfakes'),
-      solver.queryAnonymousPublicProfile('violentacrez'),
-    ]);
+      const [activePub, suspendedPub, shadowPub] = await Promise.all([
+        solver.queryAnonymousPublicProfile('spez'),
+        solver.queryAnonymousPublicProfile('deepfakes'),
+        solver.queryAnonymousPublicProfile('violentacrez'),
+      ]);
 
-    assert.strictEqual(activePub.status, 200, 'Active account spez must return HTTP 200');
-    assert.strictEqual(Boolean(activePub.json?.data?.is_suspended), false, 'spez must NOT be suspended');
+      assert.strictEqual(activePub.status, 200, 'Active account spez must return HTTP 200');
+      assert.strictEqual(Boolean(activePub.json?.data?.is_suspended), false, 'spez must NOT be suspended');
 
-    assert.strictEqual(suspendedPub.status, 200, 'Suspended account deepfakes returns 200 with is_suspended=true');
-    assert.strictEqual(suspendedPub.json?.data?.is_suspended, true, 'deepfakes must report is_suspended=true');
+      assert.strictEqual(suspendedPub.status, 200, 'Suspended account deepfakes returns 200 with is_suspended=true');
+      assert.strictEqual(suspendedPub.json?.data?.is_suspended, true, 'deepfakes must report is_suspended=true');
 
-    assert.strictEqual(shadowPub.status, 404, 'Shadowbanned/purged violentacrez must return HTTP 404');
+      assert.strictEqual(shadowPub.status, 404, 'Shadowbanned/purged violentacrez must return HTTP 404');
 
-    console.log(
-      `  -> Live Probe OK: spez=(200 ACTIVE), deepfakes=(200 is_suspended=true), violentacrez=(404 SHADOWBANNED/HIDDEN)`
-    );
-  } finally {
-    await solver.close();
-    await destroyTLS().catch(() => {});
+      console.log(
+        `  -> Live Probe OK: spez=(200 ACTIVE), deepfakes=(200 is_suspended=true), violentacrez=(404 SHADOWBANNED/HIDDEN)`
+      );
+    } finally {
+      await solver.close();
+      await destroyTLS().catch(() => {});
+    }
+    console.log('  -> Suite 4 PASSED!\n');
   }
-  console.log('  -> Suite 4 PASSED!\n');
 
   console.log('========================================================================');
   console.log('  ALL PHASE 5 BAN / SHADOWBAN / PASSWORD-RESET TESTS PASSED!');

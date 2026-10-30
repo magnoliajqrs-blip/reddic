@@ -22,6 +22,7 @@ const {
   RotationWorkerPool,
   ProfileLeaseManager,
   buildBrowserHeaders,
+  getTlsClientAssetInfo,
 } = require('../reddit_solver');
 
 async function runPhase4Tests() {
@@ -29,6 +30,18 @@ async function runPhase4Tests() {
   console.log('  PHASE 4 VERIFICATION: SOLVER INTEGRATION, WORKER POOL & LIVE BOTGUARD');
   console.log('============================================================================\n');
 
+  // Live suite: needs the native TLS library (downloaded on first use) AND reddit.com.
+  // Without the library, node-tls-client calls process.exit(1) and this suite dies silently.
+  const tlsAsset = getTlsClientAssetInfo();
+  if (!tlsAsset.ok) {
+    console.log(`  SKIP: node-tls-client native library not present (${tlsAsset.tempPath})`);
+    console.log('        Run `node reddit_solver.js --diagnose` once with network to fetch it,');
+    console.log('        or use the browser path (`--mode browser`) which needs no TLS binary.');
+    console.log('============================================================================');
+    console.log('  PHASE 4 SKIPPED — NO TLS CLIENT ASSET (not a failure)');
+    console.log('============================================================================\n');
+    return;
+  }
   await initTLS();
   try {
     // -------------------------------------------------------------------------

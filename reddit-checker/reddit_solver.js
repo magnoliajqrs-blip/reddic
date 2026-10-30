@@ -82,6 +82,45 @@ function ensureWindowsTlsDllReady() {
   } catch {}
 }
 
+/**
+ * Locate the `node-tls-client` native library that `initTLS()` loads through Koffi.
+ *
+ * The library stores it in `os.tmpdir()` and, when it is missing, downloads it - and on a
+ * failed download it calls `process.exit(1)` from inside the dependency, which looks like a
+ * silent crash. Knowing this up-front lets us warn the user (and lets tests skip) instead.
+ *
+ * @returns {{ok:boolean,platform:string,arch:string,fileName:string,tempPath:string,cachedPath:string|null}}
+ */
+function getTlsClientAssetInfo() {
+  const nameByPlatform = {
+    win32: { x64: 'tls-client-64.dll', ia32: 'tls-client-32.dll' },
+    darwin: { arm64: 'tls-client-arm64.dylib', x64: 'tls-client-x86.dylib' },
+    linux: { x64: 'tls-client-x64.so', arm64: 'tls-client-arm64.so', ia32: 'tls-client-x64.so' },
+  };
+  const platformMap = nameByPlatform[process.platform] || {};
+  const fileName = platformMap[process.arch] || platformMap.x64 || 'tls-client-x64.so';
+  const tempPath = path.join(os.tmpdir(), fileName);
+  const cachedPath = fs.existsSync(path.join(__dirname, '.bin_cache'))
+    ? path.join(__dirname, '.bin_cache', fileName)
+    : null;
+  const isUsable = (candidate) => {
+    try {
+      // Partial downloads (0-byte or truncated) fail inside koffi.load(), so treat them as missing
+      return fs.statSync(candidate).size > 1024 * 1024;
+    } catch {
+      return false;
+    }
+  };
+  return {
+    ok: isUsable(tempPath) || (cachedPath ? isUsable(cachedPath) : false),
+    platform: process.platform,
+    arch: process.arch,
+    fileName,
+    tempPath,
+    cachedPath,
+  };
+}
+
 // Default process-wide lease manager so standalone `new RedditSolver()` calls rotate browsers automatically
 const _SHARED_STANDALONE_LEASE_MANAGERS = new Map();
 function getDefaultLeaseManager(rotationMode = 'hybrid') {
@@ -4048,6 +4087,14 @@ async function main() {
 
   // BUG-13 FIXED: Always pair initTLS() with destroyTLS() in finally so worker threads exit cleanly
   ensureWindowsTlsDllReady();
+  const tlsAsset = getTlsClientAssetInfo();
+  if (!tlsAsset.ok) {
+    logger.warn(
+      'TLS',
+      `node-tls-client binary missing (${tlsAsset.tempPath}). The first run downloads ~15MB from GitHub; ` +
+        'without network access it exits silently. Use --mode browser, or copy the file from another machine.'
+    );
+  }
   await initTLS();
   try {
     if (cli.verifyRotation !== null) {
@@ -4106,6 +4153,7 @@ async function main() {
 module.exports = {
   RedditSolver,
   ensureWindowsTlsDllReady,
+  getTlsClientAssetInfo,
   RotationWorkerPool,
   EnginePoolManager,
   ProfileLeaseManager,

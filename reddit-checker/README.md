@@ -38,8 +38,10 @@ npm run dashboard             # optional live SSE dashboard on DASH_PORT
 | `npm start` / `npm run check` | bulk checker, headed browsers |
 | `npm run solver` | solver entry (`reddit_solver.js`) |
 | `npm run dashboard` | SSE dashboard for a running check |
-| `npm test` | **hermetic** unit suites — passes offline, no browsers needed |
-| `npm run test:all` | everything incl. live TLS / browser / Reddit probes (needs network + browsers) |
+| `npm run doctor` | **start here when browsers misbehave**: discovery table, TLS asset, cache, next step |
+| `npm run doctor:launch` | same, but it really launches every engine and prints the fingerprint it presents |
+| `npm test` | **hermetic** unit suites — passes offline, no browsers needed (includes phase 6, the launch contract) |
+| `npm run test:all` | everything incl. live TLS / browser / Reddit probes (needs network + browsers; those steps SKIP with a reason when impossible) |
 | `npm run test:phase[N]` | a single phase suite (1..5) |
 | `npm run verify-rotation` | live N-worker rotation + WAF check |
 | `npm run diagnose` | end-to-end login diagnostics |
@@ -83,6 +85,8 @@ Original operating manual: **[HANDOVER_GUIDE.md](./HANDOVER_GUIDE.md)** (v2.2 �
 | Symptom | Fix |
 |---|---|
 | `tls-client-x64.so` / `.dll` missing | Windows: `install.bat`. Linux/macOS: first run downloads it, or set `TLS_CLIENT_ID` after `npm rebuild node-tls-client` |
-| `Chromium binary must be discovered` | `npm run setup:browsers` |
+| `Chromium binary must be discovered` | `npm run setup:browsers`, then `npm run doctor` |
+| Process dies instantly, log ends at `tls-client-x64.so` missing | first `npm run diagnose` needs network to fetch the ~15MB native lib; offline → use `--mode browser`, or copy the file into `os.tmpdir()` / `.bin_cache/` |
+| `BROWSER_MINIMIZED=true` but windows still show | fixed in 2.3.1 — minimisation now goes through CDP after the page exists (Chromium only) |
 | `npm test` failing on live steps | expected offline — use `npm test`, not `npm run test:all` |
 | Everything headless on a desktop | `HEADLESS=false` in `.env` (or `--headed`) |

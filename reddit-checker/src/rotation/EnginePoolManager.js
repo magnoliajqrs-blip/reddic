@@ -466,7 +466,6 @@ class EnginePoolManager {
             '--disable-renderer-backgrounding',
             '--window-position=50,50',
             '--window-size=1120,760',
-            ...(this.minimizeWindow ? ['--start-minimized'] : []),
           ]
         : [];
       opts.args = [
@@ -497,6 +496,43 @@ class EnginePoolManager {
     }
 
     return opts;
+  }
+
+
+  /**
+   * Best-effort OS-window minimisation.
+   *
+   * Chromium has no `--start-minimized` switch (only `--start-maximized`), so the previous
+   * flag was a silent no-op and `BROWSER_MINIMIZED=true` never actually minimised anything.
+   * We minimise the real window through CDP the moment a page exists; Firefox/WebKit have no
+   * CDP endpoint, so for those engines we simply leave the window alone.
+   */
+  async _minimizeWindowForTargets(browser, engine) {
+    if (this.headless || !this.minimizeWindow || engine !== ENGINE_TYPES.CHROMIUM) return;
+    if (!browser || typeof browser.newBrowserCDPSession !== 'function') return;
+    let cdp = null;
+    try {
+      cdp = await browser.newBrowserCDPSession();
+      const { targetInfos = [] } = await cdp.send('Target.getTargets');
+      for (const target of targetInfos) {
+        if (target.type !== 'page') continue;
+        try {
+          const { windowId } = await cdp.send('Browser.getWindowForTarget', {
+            targetId: target.targetId,
+          });
+          await cdp.send('Browser.setWindowBounds', {
+            windowId,
+            bounds: { windowState: 'minimized' },
+          });
+        } catch {
+          // The window can disappear between the two calls - nothing to do.
+        }
+      }
+    } catch {
+      // CDP window control is Chromium-only and version dependent; never fail a session for it.
+    } finally {
+      if (cdp) await cdp.detach().catch(() => {});
+    }
   }
 
   /**
@@ -731,6 +767,9 @@ class EnginePoolManager {
       }
 
       const page = createPage ? await context.newPage() : null;
+      if (page) {
+        await this._minimizeWindowForTargets(browser, profile.engine);
+      }
       const architecture = useDedicated
         ? 'dedicated-antidetect-process'
         : 'shared-engine-context';

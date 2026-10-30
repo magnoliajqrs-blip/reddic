@@ -6,6 +6,7 @@
 
 const vm = require('vm');
 const { Session, initTLS, destroyTLS } = require('node-tls-client');
+const { getTlsClientAssetInfo } = require('../reddit_solver');
 const {
   BROWSER_BRAND_CATALOG,
   listBrandsForMode,
@@ -143,6 +144,16 @@ async function runPhase1Tests() {
   // Test 5: Live Multi-Engine TLS Handshake Test against Reddit /login/
   // ------------------------------------------------------------------
   console.log('--- [Test 5/5] Live Multi-Browser TLS & Header Handshake Verification ---');
+  // initTLS() loads a ~15MB native library from os.tmpdir(); if it is missing the dependency
+  // downloads it and calls process.exit(1) when that download fails (offline / firewall / CI),
+  // which killed this whole suite with no message. Skip explicitly instead.
+  const tlsAsset = getTlsClientAssetInfo();
+  if (!tlsAsset.ok) {
+    console.log(`  SKIP: node-tls-client native library not present (${tlsAsset.tempPath})`);
+    console.log('        First `node reddit_solver.js --diagnose` run downloads it; offline hosts must copy it in');
+    console.log('        by hand, or use the browser path (`--mode browser`), which needs no TLS binary.\n');
+    return;
+  }
   await initTLS();
   try {
     const liveTestBrands = [

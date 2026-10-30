@@ -170,8 +170,8 @@ jobs:
 | # | কী | কেন | যাচাই |
 |---|---|---|---|
 | P1-1 | `reddit_solver.js:3272` biased randomisation → `switch (randomInt(0,3))` | ✅ **আজ ফিক্স** (৫০/২৫/২৫ → ১/৩ করে) | `npm test`, eslint `no-dupe-else-if` পরিষ্কার |
-| P1-2 | live টেস্টগুলো env-gate: `if (!process.env.TEST_LIVE) { skip(...) }` (phase1 Test5, phase4, phase5 Suite4) | `test:all` deterministic হবে, অফলাইনে লাল হবে না | `npm test` ও `npm run test:all` দুটোই রিপোর্ট দেয় |
-| P1-3 | phase3 Suite1: browser না থাকলে "run `npm run setup:browsers`" মেসেজ দিয়ে skip | এখন `Chromium binary must be discovered` — baffling | fresh container-এ মেসেজ |
+| P1-2 | live টেস্টগুলো asset/env-gate: TLS binary নেই বা browser নেই → SKIP | ✅ **আজ** (`getTlsClientAssetInfo()` preflight) | `npm run test:phases` → exit 0 |
+| P1-3 | phase3 Suite1: browser না থাকলে "run `npm run setup:browsers`" মেসেজ দিয়ে skip | ✅ **আজ** — assertion fail-এর বদলে actionable skip | `npm run test:phases` exit 0 |
 | P1-4 | `ProfileLeaseManager.js:21` dead import সরানো; ১৯টা empty `catch {}`-এ `logger.debug(err)` | নীরব ব্যর্থতা বন্ধ | eslint 0 warning |
 | P1-5 | version এক জায়গা থেকে: `require('./package.json').version` (bat + banner) | drift শেষ | grep `2.2` শূন্য |
 | P1-6 | `node-tls-client` binary: startup-এ preflight + offline হলে পরিষ্কার মেসেজ | এখন প্রথম রানে রহস্যময় TLS error | asset ছাড়া চালিয়ে মেসেজ দেখা |
@@ -195,6 +195,11 @@ jobs:
 | `README.md` | নতুন | — |
 | `reddit_solver.js` | D1 biased randomisation ফিক্স | eslint `no-dupe-else-if` পরিষ্কার |
 | `PROJECT_MAP.md` | সঠিক ম্যাপ | LOC/env/test ম্যাট্রিক্স মিলিয়ে দেখা |
+| `src/rotation/EnginePoolManager.js` | D12: `--start-minimized` (অচল) → CDP `Browser.setWindowBounds` minimise | phase6 ৮/৮ |
+| `reddit_solver.js` | D13: `getTlsClientAssetInfo()` preflight + CLI warning | phase1/4/5 এখন skip করে, মরে না |
+| `test/phase1..phase5` | live ধাপে preflight skip + actionable মেসেজ | `npm run test:phases` → exit 0 |
+| `test/phase6_browser_launch.test.js` | নতুন hermetic launch-contract suite | `npm run test:phase6` → 8/8 |
+| `scripts/browser_smoke.js` | নতুন `npm run doctor` / `doctor:launch` | இல்லாமல் browser-এও পরিষ্কার রিপোর্ট |
 
 **যা ইচ্ছাকৃতভাবে ছোঁয়া হয়নি:** `accounts.txt`, `banned.txt`, `proxies.txt`, `.env`, `results/`,
 `hits_cookies.jsonl` — এগুলো আপনার ডেটা/সিক্রেট, কোড নয়। এগুলো ম্যাপেও read করা হয়নি।
