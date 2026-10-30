@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Reddit Bulk Account Checker (`reddit_checker.js` — v2.3 Clean-Hit & Ban/Lock Detection Edition)
+ * Reddit Bulk Account Checker (`reddit_checker.js` — Clean-Hit & Ban/Lock Detection Edition)
  *
  * Designed for direct one-click execution via `run.bat` on Windows (and CLI on any OS):
  *   - Reads `accounts.txt` (`username:password` per line) and optional `proxies.txt`.
@@ -30,10 +30,19 @@ const { initTLS, destroyTLS } = require('node-tls-client');
 const {
   RedditSolver,
   ensureWindowsTlsDllReady,
+  getTlsClientAssetInfo,
+  printTlsAssetHelp,
   RotationWorkerPool,
   DebugLogger,
+  VERSION,
 } = require('./reddit_solver');
-const { resolveEffectiveHeadless } = require('./src/rotation');
+const { resolveEffectiveHeadless, discoverEngineBinaries } = require('./src/rotation');
+const {
+  envInt,
+  installGracefulShutdown,
+  writeJsonAtomic,
+  formatDuration,
+} = require('./src/rotation/RuntimeGuard');
 
 const ROOT_DIR = __dirname;
 
@@ -52,7 +61,7 @@ const C = {
 
 const DEFAULT_ACCOUNTS_TEMPLATE = [
   '# ============================================================================',
-  '# REDDIT CHECKER v2.2 — ACCOUNTS LIST (accounts.txt)',
+  '# REDDIT CHECKER — ACCOUNTS LIST (accounts.txt)',
   '# ============================================================================',
   '# নিচে প্রতি লাইনে একটি করে অ্যাকাউন্ট দিন (username:password অথবা email:password)',
   '# হ্যাশ (#) দিয়ে শুরু হওয়া লাইনগুলো কমেন্ট হিসেবে গণ্য হবে (চেক করা হবে না)।',
@@ -66,7 +75,7 @@ const DEFAULT_ACCOUNTS_TEMPLATE = [
 
 const DEFAULT_PROXIES_TEMPLATE = [
   '# ============================================================================',
-  '# REDDIT CHECKER v2.2 — OPTIONAL PROXIES LIST (proxies.txt)',
+  '# REDDIT CHECKER — OPTIONAL PROXIES LIST (proxies.txt)',
   '# ============================================================================',
   '# প্রক্সি থাকলে নিচে প্রতি লাইনে ১টি করে দিন (খালি রাখলে ডাইরেক্ট ইন্টারনেট ব্যবহার হবে)।',
   '# সাপোর্টেড সব ফরম্যাট:',
@@ -206,7 +215,7 @@ function parseCheckerCliArgs(argv) {
   const opts = {
     accountsFile: path.join(ROOT_DIR, 'accounts.txt'),
     proxiesFile: path.join(ROOT_DIR, 'proxies.txt'),
-    concurrency: Number(process.env.WORKER_CONCURRENCY || 4),
+    concurrency: envInt('WORKER_CONCURRENCY', 4, { min: 1, max: 32 }),
     rotationMode: process.env.ROTATION_MODE || 'hybrid',
     solverMode: process.env.SOLVER_MODE || 'auto',
     headless: undefined,
@@ -244,9 +253,73 @@ function parseCheckerCliArgs(argv) {
   return opts;
 }
 
+/**
+ * Decide which solver stack can actually run on THIS machine, before 500 accounts are attempted.
+ *
+ * Real failure seen in the field: a fresh clone with no Playwright binaries and `SOLVER_MODE=auto`
+ * checked every account into "no browser binary" errors. Now the mode degrades explicitly (with a
+ * visible warning) or refuses to start when the user pin-pointed `browser` mode.
+ *
+ * @param {'auto'|'browser'|'http'} requested
+ * @returns {{mode: string, engines: string[], note: string|null, blocker: string|null}}
+ */
+function resolveEffectiveSolverMode(requested) {
+  const mode = ['auto', 'browser', 'http'].includes(requested) ? requested : 'auto';
+  let engines = [];
+  try {
+    const discovery = discoverEngineBinaries();
+    engines = Object.entries(discovery.engines || {})
+      .filter(([, v]) => v && v.available)
+      .map(([k]) => k);
+  } catch (err) {
+    engines = [];
+  }
+
+  if (mode === 'http') return { mode: 'http', engines, note: null, blocker: null };
+
+  if (engines.length === 0) {
+    if (mode === 'browser') {
+      return {
+        mode,
+        engines,
+        note: null,
+        blocker:
+          'SOLVER_MODE=browser was requested but no Chromium/Firefox/WebKit binary was found.\n' +
+          '  Fix: `npm run setup:browsers` (or `npx rebrowser-playwright-core install chromium firefox webkit`),\n' +
+          '  then `npm run doctor`. Or run with `--mode http` / `--mode auto`.',
+      };
+    }
+    return {
+      mode: 'http',
+      engines,
+      note:
+        'No browser binary found — falling back to the HTTP/TLS solver for this run ' +
+        '(`npm run setup:browsers` enables the browser path).',
+      blocker: null,
+    };
+  }
+
+  return { mode, engines, note: null, blocker: null };
+}
+
+/** RAM sanity check: one OS browser process per account attempt is safe, twelve are not. */
+function describeResourceProfile({ mode, workerCount, headless }) {
+  const dedicated = process.env.DEDICATED_BROWSER_PROCESS !== '0';
+  const perBrowserMb = headless ? 180 : 260;
+  const estMb = mode === 'http' ? 40 : workerCount * (dedicated ? perBrowserMb : 120);
+  const warnings = [];
+  if (mode !== 'http' && dedicated && workerCount > 6) {
+    warnings.push(
+      `${workerCount} concurrent dedicated browsers ≈ ${estMb}MB RAM. ` +
+        'Lower --threads (4-6 is the sweet spot) or set DEDICATED_BROWSER_PROCESS=0.'
+    );
+  }
+  return { dedicated, estimatedRamMb: estMb, warnings };
+}
+
 function printCheckerHelp() {
   console.log(`
-Reddit Bulk Checker v2.2 — Hybrid Multi-Browser Rotation
+Reddit Bulk Checker v${VERSION} — Hybrid Multi-Browser Rotation
 ========================================================
 Usage:
   run.bat                                     (Double-click on Windows)
@@ -437,7 +510,7 @@ function recordAccountOutcome({ res, acct, stats, outPaths }) {
 async function runSelfTest() {
   const assert = require('assert');
   const os = require('os');
-  console.log('Running Reddit Bulk Checker v2.4 self-test...');
+  console.log(`Running Reddit Bulk Checker v${VERSION} self-test...`);
 
   const sampleAccounts = parseAccountsText(`
     # comment line
@@ -600,10 +673,36 @@ async function runBulkChecker() {
   const effectiveHeadless = resolveEffectiveHeadless(cli.headless);
   const workerCount = Math.min(cli.concurrency, accounts.length);
 
+  // Preflight: never start a 500-account run on a stack that cannot work here.
+  const modeInfo = resolveEffectiveSolverMode(cli.solverMode);
+  if (modeInfo.blocker) {
+    console.error(`\n${C.red}[PREFLIGHT FAILED] ${modeInfo.blocker}${C.reset}\n`);
+    process.exitCode = 1;
+    return;
+  }
+  cli.solverMode = modeInfo.mode;
+  if (modeInfo.note) console.warn(`${C.yellow}[PREFLIGHT] ${modeInfo.note}${C.reset}`);
+
+  const resources = describeResourceProfile({
+    mode: modeInfo.mode,
+    workerCount,
+    headless: effectiveHeadless,
+  });
+  for (const w of resources.warnings) console.warn(`${C.yellow}[RESOURCES] ${w}${C.reset}`);
+
+  const tlsAsset = getTlsClientAssetInfo();
+  if (!tlsAsset.ok) {
+    console.warn(
+      `${C.yellow}[PREFLIGHT] node-tls-client asset missing (${tlsAsset.tempPath}). ` +
+        `Every mode needs it for the login POST — the first run downloads ~15MB; without ` +
+        `internet, run install.bat or copy the file into .bin_cache/.${C.reset}`
+    );
+  }
+
   const outPaths = createOutPaths(ROOT_DIR);
 
   console.log('========================================================================');
-  console.log(`${C.cyan}${C.bold}  REDDIT BULK ACCOUNT CHECKER v2.3 — CLEAN-HIT & BAN/LOCK DETECTOR${C.reset}`);
+  console.log(`${C.cyan}${C.bold}  REDDIT BULK ACCOUNT CHECKER v${VERSION} — CLEAN-HIT & BAN/LOCK DETECTOR${C.reset}`);
   console.log('========================================================================');
   console.log(`  Accounts Loaded  : ${C.bold}${accounts.length}${C.reset} (${path.basename(cli.accountsFile)})`);
   console.log(
@@ -613,7 +712,15 @@ async function runBulkChecker() {
         : `${C.bold}${proxies.length} Proxies Loaded${C.reset} (${path.basename(cli.proxiesFile)})`
     }`
   );
-  console.log(`  Worker Threads   : ${C.bold}${workerCount}${C.reset} concurrent zero-collision browsers`);
+  console.log(
+    `  Worker Threads   : ${C.bold}${workerCount}${C.reset} concurrent ` +
+      (modeInfo.mode === 'http' ? 'TLS-only workers' : 'zero-collision browsers') +
+      ` (${resources.dedicated ? 'one OS process per account' : 'shared process'}, ~${resources.estimatedRamMb}MB)`
+  );
+  console.log(
+    `  Engines Found    : ${modeInfo.engines.length ? modeInfo.engines.join(', ') : 'none (HTTP mode)'} | ` +
+      `Solver: ${C.bold}${modeInfo.mode}${C.reset} | HTTP2: ${process.env.DISABLE_HTTP2 !== '0' ? 'off (safer)' : 'on'}`
+  );
   console.log(`  Rotation Mode    : ${C.bold}${cli.rotationMode}${C.reset} (Chrome/Edge/Opera/Brave/Vivaldi/Firefox/Camoufox/Safari)`);
   console.log(
     `  Browser Window   : ${
@@ -641,13 +748,24 @@ async function runBulkChecker() {
   const startedAt = Date.now();
   const updateTitle = () => {
     setConsoleWindowTitle(
-      `Reddit Checker v2.3 | ${stats.checked}/${accounts.length} | CleanHits: ${stats.hits} | Banned: ${stats.banned} | PassReset: ${stats.passwordReset} | 2FA: ${stats.twoFa} | Bad: ${stats.invalid}`
+      `Reddit Checker v${VERSION} | ${stats.checked}/${accounts.length} | CleanHits: ${stats.hits} | Banned: ${stats.banned} | PassReset: ${stats.passwordReset} | 2FA: ${stats.twoFa} | Bad: ${stats.invalid}`
     );
   };
   updateTitle();
 
   const logger = new DebugLogger({
     level: cli.debug ? 'debug' : 'error',
+  });
+
+  // Ctrl+C must close the browsers, not leave them behind on the desktop.
+  let poolRef = null;
+  const shutdown = installGracefulShutdown({
+    logger,
+    name: 'reddit-checker',
+    onShutdown: async () => {
+      await poolRef?.shutdown?.().catch?.(() => {});
+      await destroyTLS().catch(() => {});
+    },
   });
 
   const accountMap = new Map(accounts.map((a, idx) => [idx, a]));
@@ -675,7 +793,19 @@ async function runBulkChecker() {
   }
 
   ensureWindowsTlsDllReady();
-  await initTLS();
+  // The dependency can `process.exit(1)` from inside a failed download — make sure the user sees
+  // the real reason instead of a silently closing window.
+  process.once('exit', (code) => {
+    if (code !== 0 && !getTlsClientAssetInfo().ok) printTlsAssetHelp();
+  });
+  try {
+    await initTLS();
+  } catch (err) {
+    printTlsAssetHelp();
+    console.error(`\n${C.red}[FATAL] TLS client failed to initialise: ${err.message}${C.reset}\n`);
+    process.exitCode = 1;
+    return;
+  }
   const pool = new RotationWorkerPool({
     rotationMode: cli.rotationMode,
     solverMode: cli.solverMode,
@@ -686,6 +816,7 @@ async function runBulkChecker() {
     SolverClass: RedditSolver,
     logger,
   });
+  poolRef = pool;
 
   try {
     await pool.runAccountBatch(accounts, {
@@ -711,7 +842,8 @@ async function runBulkChecker() {
           if (Object.keys(subset).length > 0) {
             deviceCache[acct.username.toLowerCase()] = subset;
             try {
-              fs.writeFileSync(deviceCachePath, JSON.stringify(deviceCache, null, 2), 'utf-8');
+              // Atomic: a Ctrl+C mid-write must not truncate the whole cache (it is default-on).
+              writeJsonAtomic(deviceCachePath, deviceCache);
             } catch {
               // cache write failure is non-fatal
             }
@@ -725,6 +857,7 @@ async function runBulkChecker() {
       },
     });
   } finally {
+    shutdown.dispose();
     await pool.shutdown().catch(() => {});
     await destroyTLS().catch(() => {});
   }
@@ -775,6 +908,8 @@ module.exports = {
   parseProxiesText,
   createOutPaths,
   recordAccountOutcome,
+  resolveEffectiveSolverMode,
+  describeResourceProfile,
   runBulkChecker,
 };
 

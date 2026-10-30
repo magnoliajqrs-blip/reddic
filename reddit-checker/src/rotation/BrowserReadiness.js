@@ -100,9 +100,19 @@ function createNetworkTracker(page) {
     },
 
     dispose() {
-      page.off?.('request', onStart);
-      page.off?.('requestfinished', onEnd);
-      page.off?.('requestfailed', onFail);
+      // Playwright has `off()`, Puppeteer only has `removeListener()`. Using `off` alone silently
+      // left three listeners on every Puppeteer page (a leak across hundreds of accounts).
+      const remove = (event, fn) => {
+        try {
+          if (typeof page.off === 'function') page.off(event, fn);
+          else if (typeof page.removeListener === 'function') page.removeListener(event, fn);
+        } catch {
+          /* page already closed — nothing to detach */
+        }
+      };
+      remove('request', onStart);
+      remove('requestfinished', onEnd);
+      remove('requestfailed', onFail);
     },
   };
 }

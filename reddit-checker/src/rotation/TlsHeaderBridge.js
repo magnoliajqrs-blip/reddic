@@ -28,6 +28,17 @@ const { VALID_TLS_CLIENT_IDS_SET } = (() => {
   return { VALID_TLS_CLIENT_IDS_SET: ids };
 })();
 
+// Only advertise `zstd` when this Node build can actually decode it (Node >= 22.15). A body we
+// cannot decode is worse than a missing (and rare) Accept-Encoding token.
+const CAN_DECODE_ZSTD = (() => {
+  try {
+    return typeof require('zlib').zstdDecompressSync === 'function';
+  } catch {
+    return false;
+  }
+})();
+const ZSTD_ENABLED = CAN_DECODE_ZSTD && process.env.ZSTD_ACCEPT !== '0';
+
 function formatSecChUa(brands) {
   if (!Array.isArray(brands) || brands.length === 0) return '';
   return brands.map((b) => `"${b.brand}";v="${b.version}"`).join(', ');
@@ -136,13 +147,13 @@ function buildProfileHttpHeaders(
     headers['User-Agent'] = profile.navigator.userAgent;
     headers['Accept'] =
       'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8';
-    headers['Accept-Encoding'] = http1 ? 'gzip, deflate, br' : 'gzip, deflate, br, zstd';
+    headers['Accept-Encoding'] = http1 ? 'gzip, deflate, br' : ZSTD_ENABLED ? 'gzip, deflate, br, zstd' : 'gzip, deflate, br';
     headers['Accept-Language'] = acceptLang;
   } else if (profile.engine === ENGINE_TYPES.FIREFOX) {
     headers['User-Agent'] = profile.navigator.userAgent;
     headers['Accept'] = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
     headers['Accept-Language'] = acceptLang;
-    headers['Accept-Encoding'] = http1 ? 'gzip, deflate, br' : 'gzip, deflate, br, zstd';
+    headers['Accept-Encoding'] = http1 ? 'gzip, deflate, br' : ZSTD_ENABLED ? 'gzip, deflate, br, zstd' : 'gzip, deflate, br';
     if (isDocumentNavigation) {
       headers['Upgrade-Insecure-Requests'] = '1';
       headers['Priority'] = 'u=0, i';
@@ -330,6 +341,7 @@ function toSolverProfileAdapter(synthesizedProfile) {
 }
 
 module.exports = {
+  CAN_DECODE_ZSTD,
   VALID_TLS_CLIENT_IDS_SET,
   formatSecChUa,
   formatAcceptLanguage,

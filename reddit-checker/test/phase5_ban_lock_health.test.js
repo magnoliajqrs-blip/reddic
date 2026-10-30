@@ -2,7 +2,7 @@
 
 /**
  * Phase 5 Automated Test Suite:
- * Post-Login Ban, Temporary Ban, Shadowban & Password-Reset Lock Detection (`v2.3.0`)
+ * Post-Login Ban, Temporary Ban, Shadowban & Password-Reset Lock Detection
  */
 
 const assert = require('assert');

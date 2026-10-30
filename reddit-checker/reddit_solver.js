@@ -54,6 +54,18 @@ const {
   waitForBrowserReady,
 } = require('./src/rotation');
 
+// Single source of truth for the version (package.json) — banners/help must never drift again.
+const VERSION = (() => {
+  try {
+    return require('./package.json').version;
+  } catch {
+    return '0.0.0';
+  }
+})();
+
+// Runtime hygiene: NaN-proof env parsing, Ctrl+C cleanup, atomic writes.
+const { envInt, installGracefulShutdown, formatDuration } = require('./src/rotation/RuntimeGuard');
+
 // Reddit edge bot-gate detection + "I'm not a robot" checkbox recovery.
 const {
   detectBotGate: detectRedditBotGate,
@@ -134,6 +146,41 @@ function getTlsClientAssetInfo() {
 
 // Default process-wide lease manager so standalone `new RedditSolver()` calls rotate browsers automatically
 const _SHARED_STANDALONE_LEASE_MANAGERS = new Map();
+/**
+ * Print the *actual* fix for a missing/undownloadable `node-tls-client` asset.
+ *
+ * The dependency prints "Failed to fetch the latest version" and then calls `process.exit(1)`
+ * from inside the library, which on Windows looks like the program silently closing. This banner
+ * is what the user needs to see instead.
+ */
+function printTlsAssetHelp(asset = getTlsClientAssetInfo(), { stream = console.error } = {}) {
+  if (asset.ok) return;
+  const lines = [
+    '',
+    '======================================================================',
+    '  [!] node-tls-client native library is missing',
+    '======================================================================',
+    `  Expected at : ${asset.tempPath}`,
+    `  Cached copy : ${asset.cachedPath || '(none)'} (project .bin_cache)`,
+    '',
+    '  Every solver mode (browser included) needs this file for the login POST.',
+    '',
+    '  Fix on Windows:',
+    '    1) run install.bat  (downloads the DLL and copies it to %TEMP%)',
+    '    2) or copy tls-client-64.dll into the folder shown above',
+    '    3) or set TLS_CLIENT_ASSET_PATH=<full path to the .dll>',
+    '',
+    '  Fix on Linux/macOS:',
+    '    cp tls-client-x64.so "$TMPDIR"   (or run once with internet access)',
+    '',
+    '  Behind a proxy/offline? Put the file in .bin_cache/ next to package.json —',
+    '  it is picked up automatically on the next run.',
+    '======================================================================',
+    '',
+  ];
+  stream(lines.join('\n'));
+}
+
 function getDefaultLeaseManager(rotationMode = 'hybrid') {
   const normalized = ['single-engine', 'multi-engine', 'hybrid'].includes(rotationMode)
     ? rotationMode
@@ -949,16 +996,109 @@ function createProxyTunnelSocket(proxyUrl, targetHost, targetPort, timeoutMs = 3
   });
 }
 
+/** True when the body still looks compressed (i.e. the transport did not decode it). */
+function looksLikeUndecodedBody(text, encoding) {
+  const enc = String(encoding || '').toLowerCase().trim();
+  if (!enc || enc === 'identity') return false;
+  const s = typeof text === 'string' ? text : '';
+  if (!s) return false;
+  if (s.charCodeAt(0) === 0x1f && s.charCodeAt(1) === 0x8b) return true; // gzip magic
+  if (s.charCodeAt(0) === 0x28 && s.charCodeAt(1) === 0xb5) return true; // zstd magic
+  const sample = s.slice(0, 4000);
+  const bad = (sample.match(/\uFFFD/g) || []).length;
+  return bad > sample.length * 0.05;
+}
+
+/**
+ * Is this error worth one more shot?
+ *
+ * A flaky proxy hop, a socket reset or a truncated body says nothing about the account — retrying
+ * is free (the credential POST never left the machine) and saves the whole check. HTTP-level
+ * rejections (403/429/gate) are NOT retried here; the caller handles those.
+ */
+function isRetryableTransportError(err) {
+  if (!err) return false;
+  if (err.code === 'DECODE_FAILED' || err.code === 'TLS_TRANSPORT') return true;
+  const msg = String(err.message || '');
+  return /transport error|ECONNRESET|ECONNREFUSED|ECONNABORTED|ETIMEDOUT|EPIPE|EAI_AGAIN|ENOTFOUND|socket hang up|Client network socket disconnected|Proxy CONNECT|timeout after/i.test(
+    msg
+  );
+}
+
+/**
+ * Was the failure provably before the request reached the server?
+ *
+ * A credential POST is retried only for these: replaying a POST that the server already processed
+ * is worse than one failed attempt (Reddit counts it as a second login).
+ */
+function isPreResponseTransportError(err) {
+  if (!err) return false;
+  if (err.code === 'TLS_TRANSPORT') return true;
+  return /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|Proxy CONNECT|getaddrinfo|connect ETIMEDOUT/i.test(
+    String(err.message || '')
+  );
+}
+
+/**
+ * Decode a response body according to `Content-Encoding`.
+ *
+ * Previously a corrupted/truncated gzip or brotli stream was logged and the *compressed bytes*
+ * were handed back as "HTML" — every downstream parser then saw garbage and the account failed
+ * with a nonsense verdict. A decode failure is a transport failure, so it throws.
+ */
+function decodeResponseBody(rawBuffer, encoding) {
+  const enc = String(encoding || '').toLowerCase().trim();
+  const raw = Buffer.isBuffer(rawBuffer) ? rawBuffer : Buffer.from(rawBuffer || '');
+  if (!enc || enc === 'identity') return raw;
+  try {
+    if (enc === 'gzip' || enc === 'x-gzip') return zlib.gunzipSync(raw);
+    if (enc === 'br') return zlib.brotliDecompressSync(raw);
+    if (enc === 'deflate') {
+      // Some servers send raw deflate without the zlib wrapper.
+      try {
+        return zlib.inflateSync(raw);
+      } catch {
+        return zlib.inflateRawSync(raw);
+      }
+    }
+    if (enc === 'zstd') {
+      // Chrome 123+ advertises zstd; Node only gained zstd in 22.15, so guard it.
+      if (typeof zlib.zstdDecompressSync !== 'function') {
+        const error = new Error(
+          'Server responded with zstd but this Node build cannot decode it (need Node >= 22.15). ' +
+            'Set ZSTD_ACCEPT=0 or upgrade Node.'
+        );
+        error.code = 'DECODE_FAILED';
+        error.encoding = enc;
+        throw error;
+      }
+      return zlib.zstdDecompressSync(raw);
+    }
+  } catch (err) {
+    const error = new Error(
+      `Response body failed to decode as ${enc} (${raw.length}B): ${err.message}`
+    );
+    error.code = 'DECODE_FAILED';
+    error.encoding = enc;
+    throw error;
+  }
+  return raw;
+}
+
 class NativeHttpClient {
   constructor({
     proxy = null,
     profile = BROWSER_PROFILES[0],
     logger = null,
-    rateLimitMinMs = Number(process.env.RATE_LIMIT_MIN_MS ?? 350),
-    rateLimitMaxMs = Number(process.env.RATE_LIMIT_MAX_MS ?? 1100),
+    rateLimitMinMs = envInt('RATE_LIMIT_MIN_MS', 350, { min: 0, max: 60000 }),
+    rateLimitMaxMs = envInt('RATE_LIMIT_MAX_MS', 1100, { min: 0, max: 60000 }),
     enableRateLimit = process.env.DISABLE_RATE_LIMIT !== '1',
   } = {}) {
     this.cookies = {};
+    // Domain-scoped jar: `this.cookies` stays the flat Reddit-facing view, but what is actually
+    // sent on the wire is filtered by host, so google.com never receives reddit_session/token_v2
+    // and a same-named cookie from another host cannot overwrite it.
+    this.jar = new Map(); // domain -> Map(name -> value)
     this.proxy = proxy;
     this.profile = profile;
     this.logger = logger;
@@ -970,25 +1110,59 @@ class NativeHttpClient {
     });
   }
 
-  _parseCookies(headers) {
+  _parseCookies(headers, requestHost = '') {
     const added = [];
     const sc = headers['set-cookie'];
     if (!sc) return added;
     for (const c of Array.isArray(sc) ? sc : [sc]) {
-      const firstPart = c.split(';')[0];
+      const segments = String(c).split(';');
+      const firstPart = segments[0];
       const eqIdx = firstPart.indexOf('=');
       if (eqIdx === -1) continue;
       const name = firstPart.slice(0, eqIdx).trim();
       const value = firstPart.slice(eqIdx + 1).trim();
-      if (name && value) {
-        this.cookies[name] = value;
-        added.push(name);
+      if (!name) continue;
+
+      const domainAttr = segments
+        .map((x) => x.trim())
+        .find((x) => /^domain=/i.test(x));
+      const host = String(requestHost).toLowerCase();
+      const cookieDomain = (domainAttr ? domainAttr.split('=')[1] : host)
+        .trim()
+        .toLowerCase()
+        .replace(/^\./, '');
+      if (!cookieDomain) continue;
+
+      if (!this.jar.has(cookieDomain)) this.jar.set(cookieDomain, new Map());
+      const bucket = this.jar.get(cookieDomain);
+      if (value === '' || /expires=thu, 01 jan 1970/i.test(c)) {
+        bucket.delete(name);
+        delete this.cookies[name];
+        continue;
       }
+      bucket.set(name, value);
+      this.cookies[name] = value;
+      added.push(name);
     }
     return added;
   }
 
-  _cookieHeader() {
+  /** Cookies whose domain matches (or is a parent of) `host`, in deterministic order. */
+  _cookieHeader(host = '') {
+    const target = String(host).toLowerCase();
+    const parts = [];
+    const seen = new Set();
+    for (const [domain, bucket] of this.jar) {
+      const matches = !target || target === domain || target.endsWith(`.${domain}`);
+      if (!matches) continue;
+      for (const [name, value] of bucket) {
+        if (seen.has(name)) continue;
+        seen.add(name);
+        parts.push(`${name}=${value}`);
+      }
+    }
+    if (parts.length > 0) return parts.join('; ');
+    // No jar yet (e.g. cookies preseeded directly on `this.cookies`): fall back to the flat view.
     return Object.entries(this.cookies)
       .map(([k, v]) => `${k}=${v}`)
       .join('; ');
@@ -1009,7 +1183,7 @@ class NativeHttpClient {
       ...headers,
       Host: u.host,
     };
-    const ck = this._cookieHeader();
+    const ck = this._cookieHeader(u.hostname);
     if (ck && !reqHeaders.Cookie && !reqHeaders.cookie) {
       reqHeaders.Cookie = ck;
     }
@@ -1037,7 +1211,7 @@ class NativeHttpClient {
       };
 
       const req = transport.request(reqOpts, (res) => {
-        const setCookieNames = this._parseCookies(res.headers);
+        const setCookieNames = this._parseCookies(res.headers, u.hostname);
         if (
           followRedirects &&
           [301, 302, 303, 307, 308].includes(res.statusCode) &&
@@ -1049,9 +1223,27 @@ class NativeHttpClient {
           res.resume();
           const nextMethod = res.statusCode === 307 || res.statusCode === 308 ? method : 'GET';
           this.logger?.debug('NativeHTTP', `<- [#N${reqId}] HTTP ${res.statusCode} redirect -> ${redir}`);
+          // A GET must not carry the previous request's entity headers, and a cross-host hop must
+          // not keep the previous Origin/Host. (Found by the phase-9 redirect audit.)
+          const nextHeaders = { ...headers };
+          if (nextMethod === 'GET' || nextMethod === 'HEAD') {
+            for (const h of ['Content-Type', 'content-type', 'Content-Length', 'content-length', 'Origin', 'origin']) {
+              delete nextHeaders[h];
+            }
+          }
+          try {
+            if (new URL(redir).hostname !== u.hostname) {
+              delete nextHeaders['Origin'];
+              delete nextHeaders['origin'];
+              delete nextHeaders['Referer'];
+              delete nextHeaders['referer'];
+            }
+          } catch {
+            /* malformed Location: let the next request fail loudly */
+          }
           return this.request(redir, {
             method: nextMethod,
-            headers,
+            headers: nextHeaders,
             body: nextMethod === 'GET' ? null : body,
             followRedirects,
             _redirectDepth: _redirectDepth + 1,
@@ -1061,14 +1253,12 @@ class NativeHttpClient {
         const chunks = [];
         res.on('data', (c) => chunks.push(c));
         res.on('end', () => {
-          let raw = Buffer.concat(chunks);
-          const enc = (res.headers['content-encoding'] || '').toLowerCase();
+          let raw;
           try {
-            if (enc === 'gzip') raw = zlib.gunzipSync(raw);
-            else if (enc === 'br') raw = zlib.brotliDecompressSync(raw);
-            else if (enc === 'deflate') raw = zlib.inflateSync(raw);
-          } catch (decompressErr) {
-            this.logger?.warn('NativeHTTP', `Decompression warning (${enc}): ${decompressErr.message}`);
+            raw = decodeResponseBody(Buffer.concat(chunks), res.headers['content-encoding']);
+          } catch (decodeErr) {
+            this.logger?.error('NativeHTTP', `[#N${reqId}] ${decodeErr.message}`);
+            return reject(decodeErr);
           }
 
           const durationMs = Date.now() - startedAt;
@@ -1132,8 +1322,8 @@ class TlsHttpClient {
     proxy = null,
     profile = null,
     logger = null,
-    rateLimitMinMs = Number(process.env.RATE_LIMIT_MIN_MS ?? 350),
-    rateLimitMaxMs = Number(process.env.RATE_LIMIT_MAX_MS ?? 1100),
+    rateLimitMinMs = envInt('RATE_LIMIT_MIN_MS', 350, { min: 0, max: 60000 }),
+    rateLimitMaxMs = envInt('RATE_LIMIT_MAX_MS', 1100, { min: 0, max: 60000 }),
     enableRateLimit = process.env.DISABLE_RATE_LIMIT !== '1',
   } = {}) {
     this.logger = logger;
@@ -1264,22 +1454,79 @@ class TlsHttpClient {
       ...(body !== null ? { body: typeof body === 'string' ? body : body } : {}),
     };
 
-    const res =
-      method === 'POST'
-        ? await activeSession.post(url, reqOptions)
-        : await activeSession.get(url, reqOptions);
+    // Bounded transport retry: a single flaky proxy hop must not cost an account. Only
+    // transport-level failures are retried here (the server never processed the request).
+    const maxAttempts = 1 + envInt('TRANSPORT_RETRY_ATTEMPTS', 2, { min: 0, max: 5 });
+    let res = null;
+    let durationMs = 0;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        res =
+          method === 'POST'
+            ? await activeSession.post(url, reqOptions)
+            : await activeSession.get(url, reqOptions);
+        durationMs = Date.now() - startedAt;
 
-    const durationMs = Date.now() - startedAt;
+        // node-tls-client reports transport/proxy failures as `status === 0`.
+        if (res.status === 0) {
+          const errDetail = (res.body || 'Unknown TLS/transport failure').slice(0, 300);
+          const transportErr = new Error(
+            `TLS client transport error on ${method} ${url}: ${errDetail}`
+          );
+          transportErr.code = 'TLS_TRANSPORT';
+          throw transportErr;
+        }
+        break;
+      } catch (err) {
+        const retryable =
+          isRetryableTransportError(err) && (method !== 'POST' || isPreResponseTransportError(err));
+        if (!retryable || attempt >= maxAttempts) {
+          this.logger?.error(
+            'TlsClient',
+            `[#T${reqId}] ${method} ${url} failed after ${attempt} attempt(s): ${err.message}`
+          );
+          throw err;
+        }
+        const backoffMs = 400 + attempt * 350 + Math.floor(Math.random() * 400);
+        this.logger?.warn(
+          'TlsClient',
+          `[#T${reqId}] ${method} ${url} transport failure (${err.message.slice(0, 120)}) — retry ${attempt}/${maxAttempts - 1} in ${backoffMs}ms`
+        );
+        await new Promise((r) => setTimeout(r, backoffMs));
+        await this.rateLimiter.wait(this.logger, 'TlsClient', 'api');
+      }
+    }
 
-    // BUG-13 FIXED: Detect node-tls-client status === 0 transport/proxy errors immediately
+    if (!res) {
+      throw new Error(`TLS client returned no response for ${method} ${url}`);
+    }
     if (res.status === 0) {
       const errDetail = (res.body || 'Unknown TLS/transport failure').slice(0, 300);
-      this.logger?.error('TlsClient', `[#T${reqId}] Transport error (status=0 after ${durationMs}ms): ${errDetail}`);
       throw new Error(`TLS client transport error on ${method} ${url}: ${errDetail}`);
     }
 
     const newCookies = await this._syncAllCookies(res.cookies, res.headers);
-    const bodyText = res.body || '';
+    let bodyText = res.body || '';
+
+    // Safety net: if the transport hands us a still-compressed body, the HTML parsers would see
+    // garbage and the account would fail with a nonsense verdict. Fail loudly and retryably.
+    const encoding = res.headers?.['content-encoding'] || res.headers?.['Content-Encoding'] || '';
+    if (Buffer.isBuffer(bodyText)) {
+      try {
+        bodyText = decodeResponseBody(bodyText, encoding).toString('utf-8');
+      } catch (err) {
+        this.logger?.error('TlsClient', `[#T${reqId}] ${err.message}`);
+        throw err;
+      }
+    } else if (looksLikeUndecodedBody(bodyText, encoding)) {
+      const err = new Error(
+        `Response body arrived still compressed (${encoding}) for ${method} ${url} — ` +
+          'the TLS transport did not decode it.'
+      );
+      err.code = 'DECODE_FAILED';
+      this.logger?.error('TlsClient', `[#T${reqId}] ${err.message}`);
+      throw err;
+    }
 
     this.logger?.recordHttp({
       client: `TlsHttpClient(${this.profile.tlsClientId})`,
@@ -2578,7 +2825,7 @@ class RedditSolver {
       if (initialGate.blocked) {
         const recovery = await resolveBotGate(page, {
           logger: this.logger,
-          timeoutMs: Number(process.env.BOT_GATE_TIMEOUT_MS || 45000),
+          timeoutMs: envInt('BOT_GATE_TIMEOUT_MS', 45000, { min: 3000, max: 180000 }),
           allowCheckbox: process.env.BOT_GATE_CHECKBOX !== '0',
         });
         if (!recovery.cleared) {
@@ -2700,7 +2947,7 @@ class RedditSolver {
       // ── HUMAN DWELL ───────────────────────────────────────────────────────
       // reCAPTCHA scores how long the page has been open; calling execute() ~1s after
       // load is the strongest automation signal there is. Stay a few seconds.
-      const dwellMs = Number(process.env.PAGE_DWELL_MS ?? 8000);
+      const dwellMs = envInt('PAGE_DWELL_MS', 8000, { min: 0, max: 120000 });
       const dwellLeft = dwellMs - (Date.now() - pageOpenedAt);
       if (Number.isFinite(dwellMs) && dwellLeft > 0) {
         this.logger.debug(
@@ -2903,6 +3150,7 @@ class RedditSolver {
       this.logger.info('Step2:Browser', `Navigating to ${targetUrl}...`);
       const pupTracker = createNetworkTracker(page);
       await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      let pupOpenedAt = Date.now();
 
       // Same bot-gate handling as the hybrid path (this fallback is only reached when no
       // gate was seen, but the gate can appear mid-flight on a shared IP).
@@ -2910,7 +3158,7 @@ class RedditSolver {
       if (pupGate.blocked) {
         const recovery = await resolveBotGate(page, {
           logger: this.logger,
-          timeoutMs: Number(process.env.BOT_GATE_TIMEOUT_MS || 45000),
+          timeoutMs: envInt('BOT_GATE_TIMEOUT_MS', 45000, { min: 3000, max: 180000 }),
           allowCheckbox: process.env.BOT_GATE_CHECKBOX !== '0',
         });
         if (!recovery.cleared) {
@@ -2926,6 +3174,13 @@ class RedditSolver {
           });
         }
         this.logger.info('Step2:BotGate', 'Puppeteer path cleared the gate; continuing.');
+        const pupHasForm = await page
+          .evaluate(() => Boolean(document.querySelector('faceplate-text-input, input[name="username"]')))
+          .catch(() => false);
+        if (!pupHasForm) {
+          await page.goto('https://www.reddit.com/login/', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => null);
+        }
+        pupOpenedAt = Date.now();
       }
 
       // Same readiness gate as the hybrid path: load + network quiet + a real login form.
@@ -2972,7 +3227,9 @@ class RedditSolver {
 
       if (!hasGrecaptcha) {
         this.logger.info('Step2:Browser', 'Waiting for browser JS challenge / lazy reCAPTCHA script...');
-        await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 15000 }).catch(() => null);
+        // `waitForNavigation` waits for the NEXT navigation — on an already-loaded page it just
+        // burns 15s per account. `waitForNetworkIdle` waits for what we actually want.
+        await page.waitForNetworkIdle({ idleTime: 600, timeout: 10000 }).catch(() => null);
 
         // Trigger input focus in case Shreddit lazy-loads reCAPTCHA on interaction (`onInputChange -> insertRecaptchaScript`)
         await page
@@ -2998,6 +3255,14 @@ class RedditSolver {
 
       // Small human-like mouse movement before execute()
       await page.mouse.move(220 + crypto.randomInt(0, 300), 180 + crypto.randomInt(0, 240), { steps: 6 });
+
+      // Same human dwell as the hybrid path: reCAPTCHA scores how fast execute() fires.
+      const pupDwellMs = envInt('PAGE_DWELL_MS', 8000, { min: 0, max: 120000 });
+      const pupDwellLeft = pupDwellMs - (Date.now() - pupOpenedAt);
+      if (pupDwellLeft > 0) {
+        this.logger.debug('Step2:Browser', `Dwelling ${Math.round(pupDwellLeft)}ms before execute()`);
+        await new Promise((r) => setTimeout(r, pupDwellLeft));
+      }
 
       this.logger.info('Step2:Browser', `Executing grecaptcha.enterprise.execute(siteKey, { action: "${this.action}" })...`);
       const result = await page.evaluate(
@@ -3451,6 +3716,24 @@ class RedditSolver {
       'x-reddit-client-version': clientVersion,
       ...(this.client.cookies.loid ? { 'x-reddit-loid': this.client.cookies.loid } : {}),
     });
+
+    // The gate can also appear *after* the checkbox (session-level challenge). A 200 with the
+    // humanity page would otherwise be classified as an unknown error and the account written to
+    // retry_errors as if the credentials failed.
+    const postGate = detectRedditBotGate(res.text, res.status);
+    if (postGate.blocked) {
+      this.wafGate = { kind: postGate.kind, widget: postGate.widget };
+      if (this.logger.dumpOnError) this.logger.saveArtifact('step4_waf_block.html', res.text);
+      this.logger.endStep('step4_reddit_login', 'waf_blocked', {
+        kind: postGate.kind,
+        httpStatus: res.status,
+      });
+      throw buildWafError({
+        kind: postGate.kind,
+        widget: postGate.widget,
+        detail: 'login POST answered with a bot gate page',
+      });
+    }
 
     const classification = classifyLoginResponse({
       status: res.status,
@@ -3942,7 +4225,7 @@ class RedditSolver {
   async runLiveDiagnostics() {
     await this.ensureProfileLease();
     console.log('='.repeat(72));
-    console.log('Reddit Solver v2.2 — Live Protocol & Hybrid Rotation Diagnostics');
+    console.log(`Reddit Solver v${VERSION} — Live Protocol & Hybrid Rotation Diagnostics`);
     console.log('='.repeat(72));
 
     const checks = [];
@@ -4362,7 +4645,7 @@ function parseCliArgs(argv) {
 
 function printHelp() {
   console.log(`
-Reddit Solver v2.2 — Hybrid Multi-Browser Rotation CLI Reference
+Reddit Solver v${VERSION} — Hybrid Multi-Browser Rotation CLI Reference
 ================================================================
 Commands:
   node reddit_solver.js --test                          Run unit & regression tests
@@ -4429,7 +4712,30 @@ async function main() {
         'without network access it exits silently. Use --mode browser, or copy the file from another machine.'
     );
   }
-  await initTLS();
+  // Ctrl+C / SIGTERM: close every browser and TLS session before the process dies, otherwise
+  // headed Chromium windows survive the script on Windows and keep holding profile locks.
+  let activePool = null;
+  let activeSolver = null;
+  const shutdown = installGracefulShutdown({
+    logger,
+    name: 'reddit-solver',
+    onShutdown: async () => {
+      await activeSolver?.close?.().catch?.(() => {});
+      await activePool?.shutdown?.().catch?.(() => {});
+      await destroyTLS().catch(() => {});
+    },
+  });
+
+  // If the dependency hard-exits while downloading the asset, make sure the user still sees why.
+  process.once('exit', (code) => {
+    if (code !== 0 && !getTlsClientAssetInfo().ok) printTlsAssetHelp();
+  });
+  try {
+    await initTLS();
+  } catch (err) {
+    printTlsAssetHelp(undefined, { stream: (t) => logger.error('TLS', t) });
+    throw new Error(`TLS client failed to initialise: ${err.message}`);
+  }
   try {
     if (cli.verifyRotation !== null) {
       const workerPool = new RotationWorkerPool({
@@ -4441,6 +4747,7 @@ async function main() {
         isRotatingGatewayProxy: Boolean(cli.proxy),
         logger,
       });
+      activePool = workerPool;
       try {
         const report = await workerPool.verifyLiveRotation({
           count: cli.verifyRotation,
@@ -4462,6 +4769,7 @@ async function main() {
       headless: cli.headless,
       logger,
     });
+    activeSolver = solver;
 
     if (cli.diagnose) {
       const diag = await solver.runLiveDiagnostics();
@@ -4480,14 +4788,21 @@ async function main() {
 
     await solver.getRecaptchaTokenOnly();
   } finally {
+    shutdown.dispose();
     await destroyTLS().catch(() => {});
   }
 }
 
 module.exports = {
+  VERSION,
   RedditSolver,
+  decodeResponseBody,
+  looksLikeUndecodedBody,
+  isRetryableTransportError,
+  isPreResponseTransportError,
   ensureWindowsTlsDllReady,
   getTlsClientAssetInfo,
+  printTlsAssetHelp,
   RotationWorkerPool,
   EnginePoolManager,
   ProfileLeaseManager,

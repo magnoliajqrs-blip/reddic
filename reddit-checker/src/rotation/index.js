@@ -10,4 +10,5 @@ module.exports = {
   ...require('./RotationWorkerPool'),
   ...require('./BrowserReadiness'),
   ...require('./BotGateRecovery'),
+  ...require('./RuntimeGuard'),
 };

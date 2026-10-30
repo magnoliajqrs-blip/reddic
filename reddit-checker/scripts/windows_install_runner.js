@@ -2,7 +2,7 @@
 
 /**
  * Multi-Fallback Force Windows Auto-Installer & Verifier
- * (`scripts/windows_install_runner.js` — v2.2 Admin Edition)
+ * (`scripts/windows_install_runner.js` — Admin Edition)
  *
  * Uses ONLY built-in Node.js core modules (`child_process`, `fs`, `https`, `path`, `os`)
  * so it runs cleanly BEFORE `node_modules` is installed!
@@ -48,7 +48,7 @@ const C = {
 
 const fullLogLines = [
   '========================================================================',
-  `REDDIT SOLVER v2.2 FORCE INSTALL LOG — ${new Date().toISOString()}`,
+  `REDDIT SOLVER FORCE INSTALL LOG — ${new Date().toISOString()}`,
   `OS: ${process.platform} ${os.release()} (${process.arch}) | Node: ${process.version}`,
   `ExecPath: ${process.execPath}`,
   `Folder: ${ROOT_DIR}`,

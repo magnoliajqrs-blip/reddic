@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableExtensions DisableDelayedExpansion
 cd /d "%~dp0"
-title Reddit Checker v2.2 - Windows Quick Launcher (Direct Local IP)
+title Reddit Checker - Windows Quick Launcher (Direct Local IP)
 chcp 65001 >nul 2>&1
 reg add HKCU\Console /v VirtualTerminalLevel /t REG_DWORD /d 1 /f >nul 2>&1
 set "NODE_EXE="
@@ -15,7 +15,7 @@ set "HEADLESS=false"
 :MENU
 cls
 echo ========================================================================
-echo   REDDIT CHECKER / SOLVER v2.2 - WINDOWS QUICK LAUNCHER (NO PROXY)
+echo   REDDIT CHECKER / SOLVER - WINDOWS QUICK LAUNCHER (NO PROXY)
 echo ========================================================================
 echo   [1] Start Bulk Account Checker (accounts.txt -^> hits.txt / 2fa.txt)
 echo   [2] Live Diagnose (Direct Local IP + Visible Browser + reCAPTCHA)

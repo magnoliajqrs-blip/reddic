@@ -3,7 +3,7 @@ setlocal EnableExtensions DisableDelayedExpansion
 
 :: CRITICAL FOR RUN AS ADMINISTRATOR: Switch from C:\Windows\System32 to this exact folder!
 cd /d "%~dp0"
-title Reddit Checker v2.2 - Force Admin Windows Installer
+title Reddit Checker - Windows Installer
 chcp 65001 >nul 2>&1
 reg add HKCU\Console /v VirtualTerminalLevel /t REG_DWORD /d 1 /f >nul 2>&1
 
@@ -34,7 +34,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "Try { Add-MpPreference -
 
 :AFTER_ADMIN
 echo ========================================================================
-echo   REDDIT CHECKER / SOLVER v2.2 - FORCE WINDOWS AUTO-INSTALLER
+echo   REDDIT CHECKER / SOLVER - WINDOWS AUTO-INSTALLER
 echo   Mode: Direct Local IP (No Proxy) + Visible Background Browsers
 echo ========================================================================
 echo   Project Folder: "%CD%"
